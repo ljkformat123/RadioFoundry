@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 The RadioFoundry Authors
-// The CJK face (CONFIG_LANG_ZH): a 16x16 one-bit glyph for every character core/ui/lang/zh.po uses, which
+// The CJK face (CONFIG_LANG_ZH): a 12x12 one-bit glyph for every character core/ui/lang/zh.po uses, which
 // tools/cjkfont.py rasterizes from an outline font into cjk_font_data.c. The Latin fonts have no glyph for Chinese, so
-// text is UTF-8 and the text layer (gfx.c) looks each character up here. The cell is 16 pixels square, the height of
-// the 8x16 font, so a line with Chinese keeps that height (docs/spec/ui.md 2.5).
+// text is UTF-8 and the text layer (gfx.c) looks each character up here. The cell is 12 pixels square, the height of
+// the 6x12 font, so a line with Chinese keeps that height and a 160x120 panel keeps its rows (local change: the
+// upstream cell is 16, the height of 8x16).
 #ifndef UI_CJK_FONT_H
 #define UI_CJK_FONT_H
 
@@ -11,8 +12,8 @@
 #include <stdbool.h>
 #include "config.h"
 
-#define CJK_FONT_W		16
-#define CJK_FONT_H		16
+#define CJK_FONT_W		12
+#define CJK_FONT_H		12
 #define CJK_FONT_ROW_BYTES	2
 #define CJK_FONT_BYTES		(CJK_FONT_H * CJK_FONT_ROW_BYTES)
 

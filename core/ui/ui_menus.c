@@ -5,6 +5,12 @@
 // picker, information pages and the one confirmation (factory reset, P7).
 #include <stddef.h>
 #include <string.h>
+
+// Local change (BG5FLU): the build's own id from the Makefile (RFOUNDRY_BUILD_TAG, YYMMDD.HHMM), shown on the About
+// page so a radio can be told apart from another one flashed from a different build. Empty outside make
+#ifndef RFOUNDRY_BUILD_TAG
+#define RFOUNDRY_BUILD_TAG ""
+#endif
 #include "board.h"
 #include "ui_nav.h"
 #include "ui_svc.h"
@@ -5366,7 +5372,8 @@ static uint16_t about_max;	// the largest first line (from the last draw)
 
 // The text's bytes: the two lists make generated, this build's font lines, and 296 for the rest (the version lines,
 // the labels, and 35 for a translation's longer ones). A fixed size cut the last lines off where the lists are long
-#define ABOUT_TEXT_MAX (296u + RFOUNDRY_ABOUT_LIST_BYTES + (CONFIG_FONT_AA ? 32u : 0u) + (CONFIG_LANG_ZH ? 48u : 0u))
+#define ABOUT_TEXT_MAX (296u + RFOUNDRY_ABOUT_LIST_BYTES + (CONFIG_FONT_AA ? 32u : 0u) + (CONFIG_LANG_ZH ? 112u : 0u) \
+	+ 16u)	// the build id (RFOUNDRY_BUILD_TAG), local change
 
 static const char *about_text(void)
 {
@@ -5410,6 +5417,19 @@ static const char *about_text(void)
 	sb_chr(&b, '\n');
 	sb_str(&b, TR(ABOUT_BODY_CONTRIBUTORS, "Contributors:"));
 	sb_str(&b, "\ngithub.com/radiofoundry");	// on its own line, as a maintainer is: it never wraps after the label
+	// the Chinese localization: its translator, kept next to the authors it builds on
+	sb_chr(&b, '\n');
+	sb_str(&b, TR(LOCALIZATION, "Localization: "));
+	sb_str(&b, "BG5FLU");
+	if (RFOUNDRY_BUILD_TAG[0] != '\0') {
+		// the build's id, next to the translator: two radios, two builds, told apart at a glance
+		sb_chr(&b, ' ');
+		sb_str(&b, RFOUNDRY_BUILD_TAG);
+	}
+	// the localization's terms: free to use, not to be sold (the firmware's own licence stays MIT)
+	sb_chr(&b, '\n');
+	sb_str(&b, TR(DECLARATION, "Declaration: "));
+	sb_str(&b, TR(NO_COMMERCIAL_USE_NO_RESALE, "no commercial use, no resale"));
 	for (unsigned i = 0; i < RFOUNDRY_ABOUT_THIRD_PARTY_COUNT; i++) {
 		sb_chr(&b, '\n');
 		sb_str(&b, about_third[i][0]);
