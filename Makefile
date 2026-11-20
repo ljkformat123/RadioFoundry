@@ -233,6 +233,9 @@ INCLUDES := -Ihal -Icore -Idrivers -Iboards/$(BOARD) -Iplatform/$(PLATFORM) -I$(
 # Firmware version: the commit, with -dirty when tracked files differ from it or untracked sources sit in the built
 # directories (both end up in the image). Only the files that use RFOUNDRY_GIT or RFOUNDRY_RELEASE get it, through
 # their own stamp, so a new commit or an edit rebuilds those few objects, not everything.
+# Local change (BG5FLU): every build carries its own id, YYMMDD.HHMM in Asia/Shanghai, so two radios flashed from two
+# builds can be told apart. It goes into the image, the About page and the debug link's tag=; RF_BUILD_TAG= pins it
+RFOUNDRY_BUILD_TAG ?= $(shell TZ=Asia/Shanghai date +%y%m%d.%H%M)
 GITVERSION := $(shell git rev-parse --short=8 HEAD 2>/dev/null || echo unknown)
 ifneq ($(GITVERSION),unknown)
 GITDIRTY := $(shell git update-index -q --refresh >/dev/null 2>&1; git diff-index --quiet --ignore-submodules=all HEAD -- \
@@ -336,13 +339,13 @@ $(if $(filter $(RFOUNDRY_PRESET),full custom $(basename $(notdir $(wildcard conf
 # the version when it changes. Checked while the Makefile is read, before make looks at any object: the stale objects
 # are removed outright, because make's 1 s timestamps can't order a stamp written in the same second as an object
 # (and a file removed by a recipe would still be in make's cache)
-VERSION_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(shell grep -lE 'RFOUNDRY_(GIT|RELEASE)' $(APP_SRC) 2>/dev/null))
+VERSION_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(shell grep -lE 'RFOUNDRY_(GIT|RELEASE|BUILD_TAG)' $(APP_SRC) 2>/dev/null))
 ifeq ($(filter clean test print-config print-cc print-unsupported print-not-written print-required print-maximal-skip print-maximal-vars \
 	print-vars,$(MAKECMDGOALS)),)
 $(shell mkdir -p $(BUILD); echo '$(CFLAGS_APP) $(CFLAGS_3P) $(LDFLAGS)' | cmp -s - $(BUILD)/flags || \
 	{ echo '$(CFLAGS_APP) $(CFLAGS_3P) $(LDFLAGS)' > $(BUILD)/flags; \
 	rm -f $(OBJ); })
-$(shell echo '$(RFOUNDRY_VERSION) $(RFOUNDRY_RELEASE) $(RFOUNDRY_GIT_TIME)' | cmp -s - $(BUILD)/version || { echo '$(RFOUNDRY_VERSION) $(RFOUNDRY_RELEASE) $(RFOUNDRY_GIT_TIME)' > $(BUILD)/version; \
+$(shell echo '$(RFOUNDRY_VERSION) $(RFOUNDRY_RELEASE) $(RFOUNDRY_GIT_TIME) $(RFOUNDRY_BUILD_TAG)' | cmp -s - $(BUILD)/version || { echo '$(RFOUNDRY_VERSION) $(RFOUNDRY_RELEASE) $(RFOUNDRY_GIT_TIME) $(RFOUNDRY_BUILD_TAG)' > $(BUILD)/version; \
 	rm -f $(VERSION_OBJ); })
 $(shell echo '$(RFOUNDRY_PRESET) $(RFOUNDRY_OFF)' | cmp -s - $(BUILD)/build_info || { echo '$(RFOUNDRY_PRESET) $(RFOUNDRY_OFF)' > $(BUILD)/build_info; \
 	rm -f $(BUILD)/core/hostlink/build_info.o; })
@@ -384,7 +387,7 @@ $(BUILD)/core/hostlink/build_info.o: CFLAGS_APP += -DRFOUNDRY_FEATURES_OFF=\"$(R
 $(VERSION_OBJ): $(BUILD)/version
 $(VERSION_OBJ): CFLAGS_APP += -DRFOUNDRY_GIT=\"$(RFOUNDRY_VERSION)\" -DRFOUNDRY_GIT_ID=$(RFOUNDRY_GIT_ID) -DRFOUNDRY_GIT_DIRTY=$(RFOUNDRY_GIT_DIRTY) \
 	-DRFOUNDRY_RELEASE=\"$(RFOUNDRY_RELEASE)\" -DRFOUNDRY_GIT_TIME=$(or $(RFOUNDRY_GIT_TIME),0)u \
-	-DRFOUNDRY_GIT_DATE=\"$(RFOUNDRY_GIT_DATE)\"
+	-DRFOUNDRY_GIT_DATE=\"$(RFOUNDRY_GIT_DATE)\" -DRFOUNDRY_BUILD_TAG=\"$(RFOUNDRY_BUILD_TAG)\"
 ifeq ($(LTO),1)
 $(patsubst %.c,$(BUILD)/%.o,$(filter $(LTO_EXCLUDE),$(APP_SRC))): CFLAGS_APP += -fno-lto
 endif

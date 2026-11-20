@@ -3098,6 +3098,21 @@ msgid "Contributors:"
 msgstr "Contributeurs :"
 
 #: core/ui/ui_menus.c
+msgctxt "LOCALIZATION"
+msgid "Localization: "
+msgstr ""
+
+#: core/ui/ui_menus.c
+msgctxt "DECLARATION"
+msgid "Declaration: "
+msgstr ""
+
+#: core/ui/ui_menus.c
+msgctxt "NO_COMMERCIAL_USE_NO_RESALE"
+msgid "no commercial use, no resale"
+msgstr ""
+
+#: core/ui/ui_menus.c
 msgctxt "ABOUT_BODY_FONT_SPLEEN"
 msgid "Spleen font: BSD-2-Clause"
 msgstr "Font Spleen: BSD-2"

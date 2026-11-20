@@ -62,6 +62,9 @@ void uvf_lcd_pins_fsmc(void);
 // DMR voice PCM to the speaker (radio_uvf.c; audio_uvf.c's hal_audio_t.speaker_pcm calls it): combined with the
 // FM squelch request, FM feed-through off while PCM plays. Callable from the audio and radio tasks
 void uvf_speaker_pcm(bool on);
+// The core's amplifier hang (hal_audio_t.speaker_warm): the amp on and, in FM, the codec already switched to its
+// PCM mode so the next beep's stream does not land in the switch
+void uvf_speaker_warm(bool on);
 
 // Extra analog readings (power_uvf.c)
 uint16_t uvf_mic_level_raw(void);
@@ -72,7 +75,16 @@ extern const hal_display_t uvf_display;
 extern const hal_input_t uvf_input;
 extern const hal_radio_t uvf_radio;
 extern const hal_power_t uvf_power;
+// The audio stream's hang (audio_uvf.c): after the core's stop the I2S stream keeps running silent for a moment,
+// so the next beep in a key burst needs no hw_start(); the radio task calls this every poll
+void uvf_audio_idle_service(void);
+// Start the stream on silence if it is down (audio_uvf.c), so a beep that follows finds it running
+void uvf_audio_prestart(void);
+void uvf_audio_fm_loop(bool on);
+bool uvf_audio_fm_looping(void);
+
 extern const hal_audio_t uvf_audio;
+extern volatile uint32_t uvf_dbg[9];
 
 #if CONFIG_AUDIO_PROBE || CONFIG_NET_USRP || CONFIG_APRS_RX
 // The audio tap: FM receive audio on the PCM stream for APRS (CONFIG_APRS_RX) and USRP, FM transmit audio for USRP

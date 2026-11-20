@@ -226,6 +226,12 @@ static size_t cmd_version(uint8_t *out, size_t cap)
 	dl_text_init(&t, (char *)out + 1, cap - 1);
 	dl_text(&t, "proto=%u\nview=%u\n", DL_PROTO_VERSION, DL_VIEW_VERSION);
 	dl_text_kv_str(&t, "git", RFOUNDRY_GIT);
+#ifndef RFOUNDRY_BUILD_TAG	// local change (BG5FLU): the build's id, so a flash can be identified without a screenshot
+#define RFOUNDRY_BUILD_TAG ""
+#endif
+	if (RFOUNDRY_BUILD_TAG[0] != '\0') {
+		dl_text_kv_str(&t, "tag", RFOUNDRY_BUILD_TAG);
+	}
 	if (RFOUNDRY_GIT_TIME != 0u) {
 		dl_text(&t, "git_time=%u\n", (unsigned)RFOUNDRY_GIT_TIME);
 	}

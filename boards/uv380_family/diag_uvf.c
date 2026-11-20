@@ -108,6 +108,24 @@ bool uvf_diag_line(uint8_t i, char *buf, uint8_t len)
 		put_u(&o, d.bus_errors);
 		put(&o, " clr ");
 		put_u(&o, d.bus_clears);
+		put(&o, " on ");
+		put_u(&o, uvf_dbg[0]);
+		put(&o, " 6e ");
+		put_u(&o, uvf_dbg[1]);
+		put(&o, " 80 ");
+		put_u(&o, uvf_dbg[2]);
+		put(&o, " keepNc ");
+		put_u(&o, uvf_dbg[3]);
+		put(&o, " keepGr ");
+		put_u(&o, uvf_dbg[4]);
+		put(&o, " carr ");
+		put_u(&o, uvf_dbg[5]);
+		put(&o, "/");
+		put_u(&o, uvf_dbg[6]);
+		put(&o, " amp ");
+		put_u(&o, uvf_dbg[7]);
+		put(&o, " 36 ");
+		put_u(&o, uvf_dbg[8]);
 		break;
 	case 5:
 		put(&o, "panel type ");

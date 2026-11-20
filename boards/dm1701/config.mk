@@ -33,3 +33,13 @@ BOARD_UNSUPPORTED += FAULT_TRACE	# needs a host UART: the host port is USB, and 
 # line fits a list row as it is and nothing else in the 160x120 layout moves (core/ui/cjk_font.h, tools/cjkfont.py)
 CONFIG_LANG_ZH ?= y
 CONFIG_LANG_DEFAULT_ZH ?= y
+
+# P25 and NXDN are off (local change): their software vocoders (IMBE, MBE) come to 84 KB, and the 12x12 Chinese table
+# (105 KB, GB2312 rows 1-9 and 16-55 so a channel named in Chinese still draws) would carry the image past 0x080C0000,
+# the codec sectors. This radio in China works DMR and FM
+CONFIG_P25 ?= n
+BOARD_UNSUPPORTED += P25	# room for the Chinese glyph table: IMBE's voice tables are 84 KB of it
+CONFIG_P25_TRUNK ?= n
+BOARD_UNSUPPORTED += P25_TRUNK	# needs P25
+CONFIG_NXDN ?= n
+BOARD_UNSUPPORTED += NXDN	# room for the Chinese glyph table: MBE's voice tables are 84 KB of it

@@ -314,16 +314,44 @@ static void set_used(uint16_t number, bool on)
 	}
 }
 
-// A Latin-1 name field (codeplug-stock-tyt.md 2): printable text (0x20-0x7E, 0xA0-0xFE) up to the first 0x00 or
-// 0xFF, only 0x00 or 0xFF after it. A UTF-16 name fails: its second byte is 0x00 and printable bytes follow
+// A name field (codeplug-stock-tyt.md 2): printable Latin-1 text (0x20-0x7E, 0xA0-0xFE) or valid UTF-8, up to the
+// first 0x00 or 0xFF, only 0x00 or 0xFF after it. A UTF-16 name fails: its second byte is 0x00 and printable bytes
+// follow. The UTF-8 form is ours: a Chinese channel name is 3 bytes a character in a 16-byte field (see CONFIG_LANG_ZH)
+static bool name_bytes_ok(const uint8_t *p, unsigned len)
+{
+	unsigned n = 0;
+	while (n < len && p[n] != 0x00 && p[n] != 0xFF) {
+		uint8_t c = p[n];
+		if (c >= 0xC2u && c <= 0xDFu) {			// a two-byte UTF-8 sequence
+			if (n + 1u >= len || (p[n + 1u] & 0xC0u) != 0x80u) {
+				return false;
+			}
+			n += 2u;
+			continue;
+		}
+		if (c >= 0xE0u && c <= 0xEFu) {			// a three-byte UTF-8 sequence (a CJK glyph here)
+			if (n + 2u >= len || (p[n + 1u] & 0xC0u) != 0x80u || (p[n + 2u] & 0xC0u) != 0x80u) {
+				return false;
+			}
+			n += 3u;
+			continue;
+		}
+		if (c < 0x20u || (c > 0x7Eu && c < 0xA0u)) {
+			return false;
+		}
+		n++;
+	}
+	return true;
+}
+
 static bool latin_name(const uint8_t *p, unsigned len, bool *empty)
 {
 	unsigned n = 0;
 	while (n < len && p[n] != 0x00 && p[n] != 0xFF) {
-		if (p[n] < 0x20u || (p[n] > 0x7Eu && p[n] < 0xA0u)) {
-			return false;
-		}
 		n++;
+	}
+	if (!name_bytes_ok(p, len)) {
+		return false;
 	}
 	*empty = n == 0;
 	for (unsigned i = n; i < len; i++) {
