@@ -157,6 +157,103 @@ P5_MAP = {
     '成': 0x9B,
     '中': 0x9C,
     '继': 0x9D,
+    '院': 0x94,
+    '火': 0x9E,
+    '站': 0x9F,
+    '飞': 0xA0,
+    '警': 0xA1,
+    '察': 0xA2,
+    '派': 0xA3,
+    '出': 0xA4,
+    '所': 0xA5,
+    '村': 0xA6,
+    '委': 0xA7,
+    '会': 0xA8,
+    '森': 0xA9,
+    '防': 0xAA,
+    '水': 0xAB,
+    '低': 0xAC,
+    '测': 0xAD,
+    '试': 0xAE,
+    '率': 0xAF,
+    '前': 0xB0,
+    '后': 0xB1,
+    '左': 0xB2,
+    '右': 0xB3,
+    '外': 0xB4,
+    '远': 0xB6,
+    '近': 0xB7,
+    '旁': 0xB8,
+    '侧': 0xB9,
+    '学': 0xBA,
+    '班': 0xBB,
+    '级': 0xBC,
+    '师': 0xBD,
+    '生': 0xBE,
+    '店': 0xBF,
+    '邮': 0xC0,
+    '宾': 0xC1,
+    '馆': 0xC2,
+    '饭': 0xC4,
+    '餐': 0xC5,
+    '油': 0xC6,
+    '药': 0xC7,
+    '园': 0xC8,
+    '路': 0xC9,
+    '街': 0xCA,
+    '渡': 0xCB,
+    '汽': 0xCC,
+    '船': 0xCD,
+    '航': 0xCE,
+    '救': 0xCF,
+    '护': 0xD0,
+    '急': 0xD1,
+    '报': 0xD2,
+    '险': 0xD3,
+    '灾': 0xD4,
+    '难': 0xD5,
+    '危': 0xD6,
+    '援': 0xD7,
+    '抢': 0xD8,
+    '修': 0xD9,
+    '保': 0xDA,
+    '好': 0xDB,
+    '大': 0xDC,
+    '小': 0xDD,
+    '多': 0xDE,
+    '少': 0xDF,
+    '旧': 0xE0,
+    '老': 0xE1,
+    '早': 0xE2,
+    '晚': 0xE3,
+    '今': 0xE4,
+    '年': 0xE5,
+    '月': 0xE6,
+    '分': 0xE7,
+    '点': 0xE8,
+    '层': 0xE9,
+    '房': 0xEA,
+    '间': 0xEB,
+    '办': 0xEC,
+    '司': 0xED,
+    '乡': 0xEE,
+    '区': 0xEF,
+    '县': 0xF0,
+    '省': 0xF1,
+    '里': 0xF2,
+    '头': 0xF3,
+    '候': 0xF4,
+    '厅': 0xF5,
+    '理': 0xF6,
+    '菜': 0xF7,
+    '局': 0xF8,
+    '幼': 0xF9,
+    '儿': 0xFA,
+    '作': 0xFB,
+    '业': 0xFC,
+    '牌': 0xFD,
+    '铺': 0xFE,
+    '库': 0xFF,
 }
 
 P0_MAP = {
@@ -432,7 +529,7 @@ class UV98nicFW(chirp_common.CloneModeRadio):
         rf.has_nostep_tuning = True
         rf.has_comment = False
         rf.memory_bounds = (1, 200)
-        rf.valid_modes = ["FM", "NFM"]
+        rf.valid_modes = ["FM", "NFM", "AM"]
         rf.valid_duplexes = ["", "+", "-", "split"]
         rf.valid_tmodes = ["", "Tone", "TSQL", "DTCS"]
         rf.valid_tuning_steps = []
@@ -440,7 +537,7 @@ class UV98nicFW(chirp_common.CloneModeRadio):
         rf.valid_characters = VALID_CHARS
         rf.valid_tones = list(chirp_common.TONES)
         rf.valid_dtcs_codes = list(chirp_common.DTCS_CODES)
-        rf.valid_bands = [(136000000, 174000000), (400000000, 480000000)]
+        rf.valid_bands = [(108000000, 174000000), (400000000, 480000000)]
         return rf
 
     def process_mmap(self):
@@ -513,7 +610,14 @@ class UV98nicFW(chirp_common.CloneModeRadio):
         else:
             mem.tmode = ""
         mem.name = _dec(rec[NAME_OFF:NAME_OFF + NAME_LEN])
-        mem.mode = "FM"
+        # 记录偏移 18 = modulation(0 FM,1 AM,2 DSB,3 Auto)，19 = bandwidth(0 Wide,1 Narrow)
+        mod = rec[18] & 0x03
+        if mod == 1:
+            mem.mode = "AM"
+        elif mod == 0 and (rec[19] & 0x01):
+            mem.mode = "NFM"
+        else:
+            mem.mode = "FM"
         mem.tuning_step = 5.0
         return mem
 
@@ -548,6 +652,7 @@ class UV98nicFW(chirp_common.CloneModeRadio):
             tv = int(round(mem.rtone * 10))
         rec[TONE_OFF:TONE_OFF + 2] = struct.pack("<H", rv & 0xFFFF)
         rec[TONE_OFF + 2:TONE_OFF + 4] = struct.pack("<H", tv & 0xFFFF)
+        rec[18] = 0x01 if mem.mode == "AM" else 0x00
         rec[21] = 0x06
         rec[24:26] = b"\xC6\xAB"
         nb = _enc(mem.name)[:NAME_LEN]
