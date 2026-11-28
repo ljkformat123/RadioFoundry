@@ -8,59 +8,45 @@
 #include <stdint.h>
 
 // The backlight pin has no timer channel. TIM1's update sets it and its CC1 match clears it, each through a one-word
-// DMA write to the port's BSRR: two writes per cycle at any duty. Two rates (hardware-dm1701.md 9.4):
-// - During TX or open receive audio, 40 kHz keeps the backlight ripple out of the signal. At
-//   101 Hz it was an audible buzz in FM transmit, at 10 kHz sidebands about 33 dB down in the adjacent channel (#330).
-// - Otherwise 1 kHz: the backlight driver is slow (it stays lit 38 us after the pin falls), so at 40 kHz it barely
-//   dimmed, and at 2 kHz the low levels still came out as very short pulses the stage does not follow: Brightness 10 %
-//   and the idle dim step looked black, only the steady levels lit the panel. 1200 Hz is the lowest rate the 16-bit
-//   timer can count (60000 of its 65535), so a 10 % level is a 54 us pulse, long enough for the stage, and the ripple
-//   is far above visible flicker.
+// DMA write to the port's BSRR: two writes per cycle at any duty (hardware-dm1701.md 9.4).
+// - 2 kHz: a rate the backlight stage follows, so the panel dims as set (the stage's tail is taken off below), with no
+//   visible flicker.
+// - During TX or open receive audio from a signal the pin is held high instead. With a carrier, any rate the stage
+//   follows modulates the synthesizer: a tone in FM transmit and receive audio, weak-signal DMR errors, and from 5 to
+//   17 kHz sidebands in the adjacent channel. A beep alone has no carrier, so the PWM stays on for it. From about
+//   18 kHz up the stage never turns off, so a dimmed level is fully lit anyway, and the shortest pulse (one count at
+//   40 kHz) left the panel dark on some radios (#759). A steady pin is clean on every radio.
 #define UVF_BL_TIMER_HZ		72000000u
-#define UVF_BL_PWM_HZ		40000u		// during TX or open receive audio
-#define UVF_BL_PERIOD		(UVF_BL_TIMER_HZ / UVF_BL_PWM_HZ)	// timer counts per cycle (1800)
-#define UVF_BL_IDLE_HZ		1200u		// otherwise (the 16-bit timer caps the period at 60000 counts here)
-#define UVF_BL_IDLE_PERIOD	(UVF_BL_TIMER_HZ / UVF_BL_IDLE_HZ)	// (60000)
+#define UVF_BL_PWM_HZ		2000u
+#define UVF_BL_PERIOD		(UVF_BL_TIMER_HZ / UVF_BL_PWM_HZ)	// timer counts per cycle (36000)
 
 // The backlight stage keeps the LEDs lit after the pin falls: about 22 us at full current, then a fall of about 34 us,
 // 38 us of full light in all, at any rate (hardware-dm1701.md 9.4: RF harmonic nulls and the 3.3 V rail agree). That
-// tail is why 40 kHz can't dim (the period is 25 us). The compare is shortened by it, so the pulse plus the tail is the
-// brightness asked for.
+// tail lit Brightness 10 % at about 18 % before the compare was shortened by it.
 #define UVF_BL_TAIL_US		38u
 #define UVF_BL_TAIL		(UVF_BL_TIMER_HZ / 1000000u * UVF_BL_TAIL_US)	// timer counts (2736)
 
 // The shortest pulse the stage follows: below it the LEDs stay dark even though the pin was driven (a pulse of a count
-// or two, 14..28 ns, lit nothing at all, so every low level and the idle dim step looked like a dark screen). 40 us is
-// under the 62 us a 20 % level at 2 kHz gave, which did light the panel.
+// or two, 14..28 ns, lit nothing at all; measured on the radio, 2026-11-20). 40 us is under the 62 us a 20 % level at
+// 2 kHz gives, which did light the panel
 #define UVF_BL_MIN_US		40u
 #define UVF_BL_MIN		(UVF_BL_TIMER_HZ / 1000000u * UVF_BL_MIN_US)	// timer counts (2880)
 
-static inline uint16_t uvf_bl_period(bool tx, bool rx_audio)
-{
-	return tx || rx_audio ? UVF_BL_PERIOD : UVF_BL_IDLE_PERIOD;
-}
-
-// CC1 value for a brightness at a period (UVF_BL_PERIOD or UVF_BL_IDLE_PERIOD): the count at which the pin clears, so
-// that the pulse plus the tail is the brightness's share of the period, and never shorter than UVF_BL_MIN. 0 = off,
-// period = fully on (the caller drives the pin steady for both).
-//
-// At the fast rate the tail is longer than the period, so no level below full fits it: dimming can't be expressed
-// there at all, and a lit level drives the pin steady instead. That is the #759 fix: the panel went dark in DMR
-// receive below Brightness 100 % because every level collapsed to a pulse the stage ignores.
-static inline uint16_t uvf_bl_compare(uint8_t percent, uint16_t period)
+// CC1 value for a brightness: the count at which the pin clears, so that the pulse plus the tail is the brightness's
+// share of the period. A level whose pulse would be shorter than UVF_BL_MIN keeps that pulse instead: lit stays lit,
+// brighter than the level asked for, rather than a dark screen (local change, BG5FLU). quiet (transmitting, or receive
+// audio open): any lit level is fully on. 0 = off, UVF_BL_PERIOD = fully on (the caller drives the pin steady for both)
+static inline uint16_t uvf_bl_compare(uint8_t percent, bool quiet)
 {
 	if (percent == 0) {
 		return 0;
 	}
-	if (percent >= 100) {
-		return period;
+	if (percent >= 100 || quiet) {
+		return UVF_BL_PERIOD;
 	}
-	if (period <= UVF_BL_TAIL + UVF_BL_MIN) {
-		return period;	// the cycle is too short to hold a pulse the stage follows: keep it lit
-	}
-	uint32_t lit = (uint32_t)percent * period / 100u;
+	uint32_t lit = (uint32_t)percent * UVF_BL_PERIOD / 100u;
 	if (lit <= UVF_BL_TAIL + UVF_BL_MIN) {
-		return (uint16_t)UVF_BL_MIN;	// the darkest level the stage holds
+		return (uint16_t)UVF_BL_MIN;
 	}
 	return (uint16_t)(lit - UVF_BL_TAIL);
 }

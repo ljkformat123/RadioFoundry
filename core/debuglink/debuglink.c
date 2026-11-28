@@ -39,6 +39,12 @@
 #ifndef RFOUNDRY_GIT_TIME
 #define RFOUNDRY_GIT_TIME 0u
 #endif
+#ifndef RFOUNDRY_GIT_SOURCE
+#define RFOUNDRY_GIT_SOURCE "unknown"
+#endif
+#ifndef RFOUNDRY_GIT_REPO
+#define RFOUNDRY_GIT_REPO ""
+#endif
 
 #define SHOT_HOLD_MS		1000	// a screen capture freezes UI redraws at most this long
 #define SHOT_TAIL_MS		250	// after the last chunk: long enough for the host's check pass to start
@@ -226,17 +232,15 @@ static size_t cmd_version(uint8_t *out, size_t cap)
 	dl_text_init(&t, (char *)out + 1, cap - 1);
 	dl_text(&t, "proto=%u\nview=%u\n", DL_PROTO_VERSION, DL_VIEW_VERSION);
 	dl_text_kv_str(&t, "git", RFOUNDRY_GIT);
-#ifndef RFOUNDRY_BUILD_TAG	// local change (BG5FLU): the build's id, so a flash can be identified without a screenshot
-#define RFOUNDRY_BUILD_TAG ""
-#endif
-	if (RFOUNDRY_BUILD_TAG[0] != '\0') {
-		dl_text_kv_str(&t, "tag", RFOUNDRY_BUILD_TAG);
-	}
 	if (RFOUNDRY_GIT_TIME != 0u) {
 		dl_text(&t, "git_time=%u\n", (unsigned)RFOUNDRY_GIT_TIME);
 	}
 	if (RFOUNDRY_RELEASE[0] != '\0') {
 		dl_text_kv_str(&t, "release", RFOUNDRY_RELEASE);
+	}
+	dl_text_kv_str(&t, "source", RFOUNDRY_GIT_SOURCE);	// where the build came from (support-info.md 1)
+	if (RFOUNDRY_GIT_REPO[0] != '\0') {
+		dl_text_kv_str(&t, "repo", RFOUNDRY_GIT_REPO);
 	}
 	dl_text_kv_str(&t, "board", board.name);
 	dl_text(&t, "features=%s%s\n", build_modes_now(), build_features_now());
@@ -863,13 +867,23 @@ static size_t handle(uint8_t cmd, const uint8_t *req, uint16_t len, uint8_t *out
 		return debuglink_cmd_t3(req, len, out, cap);
 	case DL_CMD_CPKV:
 		return debuglink_cmd_cpkv(req, len, out, cap);
+	case DL_CMD_FONT:
+		return debuglink_cmd_font(req, len, out, cap);
 	case DL_CMD_CHIP_REG:
 		return debuglink_cmd_chip_reg(req, len, out, cap);
 	case DL_CMD_HWOPT:
 		return debuglink_cmd_hwopt(req, len, out, cap);
+	case DL_CMD_SATELLITE:
+		return debuglink_cmd_satellite(req, len, out, cap);
 #if CONFIG_AIR_RAW
 	case DL_CMD_AIR:
 		return debuglink_cmd_air(req, len, out, cap);
+#endif
+	case DL_CMD_SUPPORT:
+#if CONFIG_SUPPORT_INFO
+		return debuglink_cmd_support(req, len, out, cap);
+#else
+		return status_only(out, DL_ST_UNAVAILABLE);
 #endif
 	case DL_CMD_CODEPLUG:
 #if CONFIG_CPS_FAST

@@ -157,7 +157,7 @@ bool ui_svc_vfo_sfr(uint8_t a)
 bool ui_svc_mode(uint8_t mode)
 {
 	if (mode != RADIO_MODE_FM && mode != RADIO_MODE_DMR && !(mode == RADIO_MODE_P25 && CONFIG_P25) &&
-	    !(mode == RADIO_MODE_NXDN && CONFIG_NXDN)) {
+	    !(mode == RADIO_MODE_NXDN && CONFIG_NXDN) && !(mode == RADIO_MODE_YSF && CONFIG_YSF)) {
 		return false;
 	}
 	radio_req_mode(mode);
@@ -223,6 +223,9 @@ uint32_t ui_svc_feat_radio(void)
 #endif
 #if CONFIG_NXDN
 	       (radio_nxdn_fits() ? UI_FEAT_NXDN : 0) |
+#if CONFIG_YSF
+	       (radio_ysf_fits() ? UI_FEAT_YSF : 0) |
+#endif
 #endif
 	       0;
 }
@@ -283,8 +286,8 @@ bool ui_svc_dual(const ui_dual_ref_t ref[2], uint8_t sel)
 			if (!(CONFIG_VFO_FM || CONFIG_VFO_DMR))
 				return false;
 		} else if (r[i].pos >= CODEPLUG_ZONE_MAX || !codeplug_zone(r[i].zone, &z) || r[i].pos >= z.count ||
-			   !codeplug_channel(z.channels[r[i].pos], &ch) || ch.kind == CODEPLUG_KIND_P25_TRUNK) {
-			return false;	// a trunked channel follows its system: not one to watch
+			   !codeplug_channel(z.channels[r[i].pos], &ch) || codeplug_kind_trunked(ch.kind)) {
+			return false;	// a trunked channel (P25 or Tier III) follows its system: not one to watch
 		}
 	}
 	if (sel > 1 || (r[0].vfo == r[1].vfo && r[0].zone == r[1].zone && r[0].pos == r[1].pos))

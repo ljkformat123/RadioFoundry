@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The RadioFoundry Authors
-# DM-1701 feature defaults (config/features.mk lists them all). 720 KB for code and read-only data: flash sectors 3-9;
-# the codec sectors 10 and 11 are never linked into (boards/dm1701/memory.ld, docs/spec/codec-placement.md).
+# DM-1701 feature defaults (config/features.mk lists them all). 720 KB for code and read-only data: flash sectors 3-9,
+# 0x0800C000 to 0x080BFFFF; the codec runs in place in sectors 10 and 11, which the app never links into
+# (boards/dm1701/memory.ld, docs/spec/codec-dm1701.md). docs/feature-matrix.md has the image's size
 # 160x120 display. The fault trace, the large font and LTO follow the platform (platform/stm32f4/config.mk)
 # Safe area: the lens hides about 5 px left and right (bench, 2026-10-09). Top and bottom are 0: the 5 px there were
 # dead space on the radio (owner, 2026-10-11). Left and right stay 5 until checked on the radio the same way
@@ -13,8 +14,11 @@ CONFIG_DISPLAY_INSET_BOTTOM ?= 0
 CONFIG_APRS_IGATE ?= n
 MAXIMAL_VARS := LTO=1
 # Left out of tools/ci.sh's maximal configuration: PPP stands in for the USB network adapter on UART-only radios
-# (docs/spec/ppp.md), and this one has the adapter; the APRS iGate is off by default (above)
-MAXIMAL_SKIP := NET_PPP APRS_IGATE
+# (docs/spec/ppp.md), and this one has the adapter; the APRS iGate is off by default (above); French, off by
+# default, so that the maximal build keeps satellite tracking and still fits the app region; Chinese stays out too
+# (its glyph table does not fit beside the rest)
+MAXIMAL_SKIP := NET_PPP APRS_IGATE LANG_FR LANG_ZH LANG_DEFAULT_ZH
+
 # What the radio's hardware can't do, one switch per line with the reason (tools/boards.py checks there is one;
 # docs/build-config.md, "Unsupported, not written, unconfirmed"): ci's maximal configuration leaves these off
 BOARD_UNSUPPORTED += FONT_XL	# the 160x120 panel is too small for the large font (it is for 240 px and wider)
@@ -29,8 +33,19 @@ BOARD_UNSUPPORTED += FAULT_TRACE	# needs a host UART: the host port is USB, and 
 # GPS stays on: no module from the factory, but owners fit one on PA10 / PA9 (hardware-dm1701.md 14.2). Detected at run
 # time in the background: a radio without one stops listening after 5 s of silence
 
-# Chinese on this radio (local change): the CJK cell is 12x12, the height of this layout's 6x12 font, so a Chinese
-# line fits a list row as it is and nothing else in the 160x120 layout moves (core/ui/cjk_font.h, tools/cjkfont.py)
+# Chinese (CONFIG_LANG_ZH, docs/build-config.md): a line of it needs 16 px, and this class draws its words in the 6x12
+# font, so core/ui/ui_screens.c moves lists, labels, the strip, the hints and the text pages up to the 8x16 font while a
+# wide language is in use; Home then has no room for the zone line and a list shows 5 rows instead of 7 on the 160x120
+# panel (docs/spec/ui.md 2.5). Off by default like on every radio. Its glyph table (about 27 KB, docs/feature-matrix.md)
+# is far smaller than the old GB2312 one: the `chinese` CI extra builds it beside the default build
+#
+#	make BOARD=dm1701 CONFIG_LANG_ZH=y CONFIG_LANG_DEFAULT_ZH=y
+#
+# board.toml's "chinese" ci extra builds exactly that. The web flasher offers Chinese to a browser that asks for it
+# (docs/user/02-installing.md); the build fits without dropping Spanish (docs/user/23-radios.md)
+#
+# Local change (BG5FLU): Chinese on by default, in a 12x12 cell rather than 16x16 - the height of this layout's 6x12
+# font - so the 160x120 layout keeps its rows and nothing moves to the 8x16 font (core/ui/cjk_font.h, tools/cjkfont.py)
 CONFIG_LANG_ZH ?= y
 CONFIG_LANG_DEFAULT_ZH ?= y
 
@@ -43,3 +58,13 @@ CONFIG_P25_TRUNK ?= n
 BOARD_UNSUPPORTED += P25_TRUNK	# needs P25
 CONFIG_NXDN ?= n
 BOARD_UNSUPPORTED += NXDN	# room for the Chinese glyph table: MBE's voice tables are 84 KB of it
+
+# The new network extras and SNMP are off (local change): the radio has a GPS module fitted (pos.gps_present=1), so
+# satellite tracking stays, and with the 12x12 Chinese table (105 KB) the image was past 0x080C0000. These four host
+# services are what goes instead: USRP (SDR audio over USB), rigctld (a rig-control port), mDNS (service discovery) and
+# TFTP (a file server beside the CPS's own USB link)
+CONFIG_SNMP ?= y
+CONFIG_NET_USRP ?= y
+CONFIG_NET_RIGCTL ?= y
+CONFIG_MDNS ?= y
+CONFIG_TFTP ?= y

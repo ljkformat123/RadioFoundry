@@ -108,24 +108,6 @@ bool uvf_diag_line(uint8_t i, char *buf, uint8_t len)
 		put_u(&o, d.bus_errors);
 		put(&o, " clr ");
 		put_u(&o, d.bus_clears);
-		put(&o, " on ");
-		put_u(&o, uvf_dbg[0]);
-		put(&o, " 6e ");
-		put_u(&o, uvf_dbg[1]);
-		put(&o, " 80 ");
-		put_u(&o, uvf_dbg[2]);
-		put(&o, " keepNc ");
-		put_u(&o, uvf_dbg[3]);
-		put(&o, " keepGr ");
-		put_u(&o, uvf_dbg[4]);
-		put(&o, " carr ");
-		put_u(&o, uvf_dbg[5]);
-		put(&o, "/");
-		put_u(&o, uvf_dbg[6]);
-		put(&o, " amp ");
-		put_u(&o, uvf_dbg[7]);
-		put(&o, " 36 ");
-		put_u(&o, uvf_dbg[8]);
 		break;
 	case 5:
 		put(&o, "panel type ");
@@ -180,15 +162,10 @@ bool uvf_diag_line(uint8_t i, char *buf, uint8_t len)
 		put(&o, "no DMR");
 		break;
 #endif
-	case 12: {	// how the clock started, and whether this image may transmit on this radio (uvf_variant.tx_block)
+	case 12: {	// how the clock started
 		static const char *const hse[] = { "HSI", "ext", "xtal" };
-		const char *block = uvf_variant.tx_block != NULL ? uvf_variant.tx_block() : NULL;
 		put(&o, "hse ");
 		put(&o, hse[uvf_hse_mode() % 3u]);
-		put(&o, block != NULL ? " TX off: " : " TX ok");
-		if (block != NULL) {
-			put(&o, block);
-		}
 		break;
 	}
 	default:

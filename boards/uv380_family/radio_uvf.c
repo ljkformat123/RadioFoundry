@@ -24,6 +24,7 @@
 #include "radio/pa_keyup.h"
 #include "modem/hrc_common/hrc6000_dmr.h"
 #include "hrc/hrc_bus.h"
+#include "hrc/i2s_pcm.h"
 #include "dmr_uvf.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -672,6 +673,13 @@ static void rf_resync(void)
 	count(at1846s_set_state(&r.rf, r.rx_valid ? AT1846S_STATE_RX : AT1846S_STATE_IDLE));	// forced
 }
 
+// The chip in FM receive: its line out plays its own FM audio and no I2S PCM, so a beep goes through its prompt FIFO
+// (i2s_pcm.c, modem-hrc6000.md 8). Off before a DMR set-up or a transmission, on after the FM receive rows
+static void fifo_fm(bool on)
+{
+	stm32_i2s_pcm_fm_chip(on ? &r.modem : NULL);
+}
+
 // HR_C6000 into DMR (modem-hrc6000.md 3.1) with the DMR modulation pair for the frequency, then the slot engine
 static void dmr_enter(void)
 {
@@ -692,66 +700,11 @@ static void dmr_enter(void)
 static bool audio_wanted;	// the core wants the FM speaker on
 static bool pcm_wanted;		// DMR voice PCM is playing
 static bool volume_zero = false;	// knob at the bottom: silent (the lowest gain, -31 dB, is still audible)
+static bool fm_muted;		// the core's speaker_mute: FM silent, its feed-through (and APRS's I2S copy) kept
 static SemaphoreHandle_t speaker_lock;
 
-// HR_C6000 codec set for PCM playback: DAC to the line out (4:0xE2 bit 1), and the mode the line out needs: in DMR
-// the codec under MCU control (4:0xE0 = 0xC9) with the I2S mode bits of 4:0x22 (0x06, as at init and in the 0x86 TX
-// start) kept set, and in FM the chip back out of FM mode (4:0x10 = 0x6E): while 0x10 bit 7 is set the line out
-// carries the chip's own FM receive audio and I2S PCM (beeps, prompts) does not reach it, 0x36 set or clear
-// (modem-hrc6000.md 8). speaker_apply() puts 0x10 back to 0x80 (FM, receive and transmit alike) when the tones end.
-static bool pcm_fm_codec;	// PCM playing in FM: 0x10 is in DMR mode, the FM rows go back when it stops
-
-// The switch back is not free: it stops the chip's FM path and the I2S stream has to catch the clock again, so a key
-// pressed right after the last tone landed in the gap and its beep never sounded (FM only: on DMR nothing switches).
-// A burst of keys therefore switches once, and the FM mode comes back when the tones have been over that long
-#define PCM_FM_GRACE_MS	150u
-static uint32_t pcm_fm_hold_ms;	// when the last tone ended (0: not holding)
-// The core's amplifier hang (hal_audio_t.speaker_warm): the amp stays on and the codec in its PCM mode for a
-// second after the last key, so a burst of keys needs one switch, not one per beep (DMR never switches at all:
-// its 0x10 is 0x6E from the start)
-static volatile bool warm_on;
-static volatile bool fm_carrier;	// the chip sees a carrier: FM audio on the air to be heard (status() sets it)
-
-// Temporary counters for the beep-codec question: what the 0x10 writes actually do, without trusting the readback
-volatile uint32_t uvf_dbg[9];	// 0 codec_on(FM) 1 wrote 6xE 2 release wrote 0x80 3 release kept (no carrier) 4 release kept
-				// (grace) 5 status saw a carrier 6 status polls 7 amp on/off changes 8 0x36 on/off changes
-
-// Back to FM mode in 0x10, unless PCM wants the codec or the grace after the last tone has not run out (forced: the
-// FM audio the core asks for is about to play, and its first blocks must not land in the switch)
-static void pcm_fm_release(uint32_t now, bool force)
-{
-	if (!pcm_fm_codec || pcm_wanted) {
-		return;
-	}
-	if (!force && !fm_carrier) {
-		uvf_dbg[3]++;
-		// No signal on the air, so nothing on FM to listen to: leave the codec in its PCM mode, where the next beep
-		// needs it, instead of flipping it back to 0x80 and in again for every key pressed over a dead channel. The
-		// core's audio() is on for the whole FM receive (its squelch is the chip's), so only the chip's carrier flag
-		// says whether the FM audio would actually be heard; with one, the FM audio wins and audio() forces the
-		// switch before its first blocks
-		return;
-	}
-	if (!force && pcm_fm_hold_ms != 0 && (uint32_t)(now - pcm_fm_hold_ms) < PCM_FM_GRACE_MS) {
-		uvf_dbg[4]++;
-		return;
-	}
-	count(hrc_write(&r.modem, 4, 0x10, 0x80));
-	uvf_dbg[2]++;
-	pcm_fm_codec = false;
-	pcm_fm_hold_ms = 0;
-}
-
-static void pcm_codec_on(void);	// below
-
-// The FM mode rows were written (their 0x10 is 0x80): whatever the flag said is stale
-static void pcm_fm_mode_reset(void)
-{
-	pcm_fm_codec = false;
-	pcm_fm_hold_ms = 0;
-	// 0x10 is 0x80 again: the chip's own FM audio on the line out. Nothing else to undo
-}
-
+// HR_C6000 codec set for PCM playback: DAC to the line out (4:0xE2 bit 1), and in DMR the codec under MCU control
+// (4:0xE0 = 0xC9) with the I2S mode bits of 4:0x22 (0x06, as at init and in the 0x86 TX start) kept set
 static void pcm_codec_on(void)
 {
 	uint8_t v;
@@ -763,53 +716,21 @@ static void pcm_codec_on(void)
 		if (hrc_read(&r.modem, 4, 0x22, &v) && (v & 0x06u) != 0x06u) {
 			count(hrc_write(&r.modem, 4, 0x22, (uint8_t)(v | 0x06u)));
 		}
-	} else if (!pcm_fm_codec) {
-		// One write, mode only: the FM receive rows' 0x60, 0xE0, 0x34, 0x81, 0x85 and 0x26 stay as they are, so a
-		// beep between FM receive and FM transmit (the roger beep) does not disturb the transmission
-		pcm_fm_codec = hrc6000_fm_rx_pcm(&r.modem);
-		if (pcm_fm_codec) {
-			uvf_dbg[1]++;
-		}
-		pcm_fm_hold_ms = 0;
 	}
 }
 
-static void speaker_apply(bool force_fm)
+static void speaker_apply(void)
 {
 	bool locked = speaker_lock != NULL && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING;
 	if (locked) {
 		xSemaphoreTake(speaker_lock, portMAX_DELAY);
 	}
 	bool pcm = pcm_wanted;
-	// DMR gates the FM feed-through while its voice PCM plays; FM must not, and that is the one difference the two
-	// modes had left: every beep flipped 0x36 to 0x00 and back (a click, and a tone that could land in the switch),
-	// while DMR's 0x36 never changed under a key. In FM the feed-through follows the core alone
-	bool fm = audio_wanted && !(pcm && r.mode == RADIO_MODE_DMR);
-	bool on = (fm || pcm || warm_on) && !volume_zero;	// warm: the amplifier up with the source silent
-	uvf_backlight_rx(fm || pcm || warm_on);	// volume zero still feeds FM audio to APRS
+	bool fm = audio_wanted && !pcm;
+	bool on = ((fm && !fm_muted) || pcm) && !volume_zero;
 	// The FM feed-through also gates the FM audio on the I2S stream that APRS receive reads (hardware-dm1701.md
-	// 21.3.1), so it follows the core's request, not the knob: at volume zero only the amp is off
-	static bool last_fm, last_on;
-	if (fm != last_fm) {
-		last_fm = fm;
-		uvf_dbg[8]++;
-	}
-	if (on != last_on) {
-		last_on = on;
-		uvf_dbg[7]++;
-	}
+	// 21.3.1), so it follows the core's request, not the knob or the mute: at volume zero or muted only the amp is off
 	count(hrc6000_fm_audio(&r.modem, fm));	// FM feed-through only for FM; PCM comes from the codec DAC
-	if (!pcm && pcm_fm_codec) {
-		// The tones are over: FM mode back in 0x10 after the grace, so the line out carries the chip's FM receive
-		// audio again (0x80 is the FM row for the receive chain and for the transmit chain, whichever comes next).
-		// Not while FM receive is being heard: then the codec stays in PCM mode and the stream loops the FM audio,
-		// so there is no switch at all between the tones and the receive audio
-		uint32_t now = hal_millis();
-		if (pcm_fm_hold_ms == 0) {
-			pcm_fm_hold_ms = now != 0 ? now : 1;
-		}
-		pcm_fm_release(now, !audio_wanted || (force_fm && fm));
-	}
 	if (on) {
 		if (pcm) {
 			pcm_codec_on();
@@ -829,23 +750,16 @@ static void speaker_apply(bool force_fm)
 static void audio(bool on)
 {
 	audio_wanted = on;
-	speaker_apply(on);	// FM receive: the chip's own path (0x80), no PCM stream of the receive audio
+	speaker_apply();
+}
+
+static void speaker_mute(bool mute)
+{
+	fm_muted = mute;
+	speaker_apply();
 }
 
 #if CONFIG_DMR
-// hal_audio_t.speaker_warm: the core's amplifier hang. In FM the codec is put in its PCM mode here, before any beep
-// stream starts, and stays there for the hang: the DMA then starts into a codec already switched instead of a stream
-// that lands in the middle of the 0x80 -> 0x6E switch, which is how a fast key in FM lost its beep while DMR (0x6E
-// from the start, no switch at all) never did
-void uvf_speaker_warm(bool on)
-{
-	if (on == warm_on) {
-		return;
-	}
-	warm_on = on;
-	speaker_apply(false);	// amp up (on) or the FM mode back once the grace ran out (off)
-}
-
 // Overrides the fallback in audio_uvf.c (hal_audio_t.speaker_pcm)
 void uvf_speaker_pcm(bool on)
 {
@@ -853,7 +767,7 @@ void uvf_speaker_pcm(bool on)
 		return;
 	}
 	pcm_wanted = on;
-	speaker_apply(false);
+	speaker_apply();
 }
 #endif
 
@@ -888,7 +802,7 @@ static void init(void)
 	r.mode = RADIO_MODE_FM;
 	count(at1846s_set_mode(&r.rf, AT1846S_MODE_FM));
 	count(hrc6000_set_mode_fm_rx(&r.modem));
-	pcm_fm_mode_reset();	// 0x10 is 0x80 again in these rows
+	fifo_fm(true);
 	audio(false);
 	r.diag.c6000_ok = hrc_read(&r.modem, 4, 0x10, &r.diag.c6000_r10);
 	stm32_hrc_dmr_init(&r.modem, &dmr_board);
@@ -918,6 +832,7 @@ static void set_mode(radio_mode_t mode)
 {
 	radio_mode_t prev = r.mode;
 	r.mode = mode;
+	fifo_fm(false);
 	if (r.rx_valid) {
 		r.rx_tune_hz = rx_tune(r.rx_hz);	// the receive offset follows the mode, not only the next rx()
 	}
@@ -939,7 +854,7 @@ static void set_mode(radio_mode_t mode)
 		rx_retune();
 		if (!r.tx_on) {
 			count(hrc6000_set_mode_fm_rx(&r.modem));
-			pcm_fm_mode_reset();	// 0x10 is 0x80 again in these rows
+			fifo_fm(true);
 		}
 	}
 	apply_rx_tone();	// the mode table rewrote reg 0x3A
@@ -1067,7 +982,7 @@ static bool rx_set(uint32_t hz, radio_bw_t bw, const subtone_t *rx_tone, bool ke
 	r.rf_direct = false;
 	if (r.mode == RADIO_MODE_FM) {
 		count(hrc6000_set_mode_fm_rx(&r.modem));
-		pcm_fm_mode_reset();	// 0x10 is 0x80 again in these rows
+		fifo_fm(true);
 	} else if (!same) {
 		// New channel: the DMR modulation pair for it, and the receiver searches again (5.1). Back from our own
 		// transmission on the same channel the engine has already restarted it, or kept a repeater's timing
@@ -1092,10 +1007,8 @@ static bool tx(uint32_t hz, radio_bw_t bw, uint8_t power, const subtone_t *tx_to
 	if (band == NULL || !band->tx) {
 		return false;
 	}
-	if (uvf_variant.tx_block != NULL && uvf_variant.tx_block() != NULL) {
-		return false;	// an image for another hardware version: its PA band select may be this radio's backlight
-	}
 	bool uhf = hz >= UHF_MIN_HZ;
+	fifo_fm(false);		// keyed: no beep from the speaker into the microphone
 	if (board.power_count > 0 && power >= board.power_count) {
 		power = (uint8_t)(board.power_count - 1);
 	}
@@ -1152,7 +1065,6 @@ static bool tx(uint32_t hz, radio_bw_t bw, uint8_t power, const subtone_t *tx_to
 		.mic_gain = FM_MIC_GAIN,
 	};
 	count(hrc6000_set_mode_fm_tx(&r.modem, &fm));
-	pcm_fm_mode_reset();	// 0x10 is 0x80 again in these rows
 
 	count(at1846s_set_bandwidth(&r.rf, rf_bw(bw)));
 	count(at1846s_set_mode(&r.rf, AT1846S_MODE_FM));
@@ -1187,10 +1099,9 @@ static void tx_end(bool keep)
 	count(at1846s_set_tx_tone(&r.rf, AT1846S_TONE_NONE, 0));
 	count(at1846s_set_state(&r.rf, AT1846S_STATE_IDLE));
 	count(hrc6000_set_mode_fm_rx(&r.modem));
-	pcm_fm_mode_reset();	// 0x10 is 0x80 again in these rows
 	r.tx_on = false;
+	fifo_fm(true);	// the chip is in FM receive now, whatever r.mode says, until rx() sets it up
 	uvf_backlight_tx(false);
-	/* FM receive is back on the chip's own path: 0x80 in the mode rows just written, nothing to re-arm */
 }
 
 static void tx_off(void)
@@ -1222,21 +1133,9 @@ static void dmr_tx_end(void)
 
 static void status(radio_status_t *st)
 {
-	uvf_audio_idle_service();	// ends the audio stream's hang once it runs out (audio_uvf.c)
-	// FM receive owns the PCM mode and the stream for as long as it lasts: whatever put 0x10 back to 0x80 (the
-	// mode rows after a transmission, a mode change) is undone here, off the audio callback, before the next key
 	if (stm32_hrc_dmr_tx_active() || r.afsk) {
 		*st = r.last_status;	// keep I2C3 free for the per-burst switching / the AFSK tone switching
 		return;
-	}
-	// The grace after the last tone runs out on this poll: the FM mode comes back here, off the audio callback
-	pcm_fm_release(hal_millis(), false);
-	// 4:0x10 sampled live (the boot snapshot of r.diag.c6000_r10 goes stale): the diag line then shows whether the
-	// codec sits in PCM mode or has been handed back to the chip's FM audio, which is what a silent beep hinges on
-	static uint8_t c6000_tick;
-	if (++c6000_tick >= 8) {
-		c6000_tick = 0;
-		r.diag.c6000_ok = hrc_read(&r.modem, 4, 0x10, &r.diag.c6000_r10);
 	}
 	uint8_t rssi, noise;
 	uint16_t flags, value;
@@ -1245,7 +1144,6 @@ static void status(radio_status_t *st)
 		st->rssi_dbm = -140;
 		st->noise = 255;
 		st->carrier = false;
-		fm_carrier = false;
 		st->tone_ok = type == AT1846S_TONE_NONE;
 		return;
 	}
@@ -1256,25 +1154,43 @@ static void status(radio_status_t *st)
 	st->rssi_dbm = r.rx_uhf ? (int16_t)(rssi - 151) : (int16_t)(-164 + rssi * 32 / 27);
 	st->noise = noise;
 	st->carrier = (flags & AT1846S_FLAG_SQ) != 0;
-	uvf_dbg[6]++;
-	if (st->carrier) {
-		uvf_dbg[5]++;
-	}
-	fm_carrier = st->carrier;	// 0x10 may go back to the FM rows only while there is FM audio to carry
 	st->tone_ok = at1846s_tone_match(flags, type);
 	r.last_status = *st;
 }
 
-// Soft volume (hardware-dm1701.md 11.2, 17): the knob's 0..100 % maps linearly to -31..+31 dB of HR_C6000 RX gain
+// Soft volume (hardware-dm1701.md 11.2, 17): the knob's 0..100 % maps linearly to -31..+31 HR_C6000 RX gain steps,
+// which scale the PCM path (beeps, DMR voice) too
+static int volume_gain_step(uint8_t percent)
+{
+	return (int)percent * 62 / 100 - 31;
+}
+
+// The level at the speaker of a fixed PCM tone at each of those gain steps, -31..+31, in tenths of a dB from step 0
+// (measured, hardware-dm1701.md 11.2): about 0.77 dB a step over the whole range
+static const int16_t rx_gain_db10[63] = {
+	-243, -235, -227, -219, -211, -203, -195, -188, -180,
+	-172, -164, -156, -148, -141, -133, -125, -117, -109,
+	-101, -93, -86, -78, -70, -62, -54, -47, -39,
+	-31, -23, -16, -8, 0, 9, 16, 24, 32,
+	40, 48, 55, 62, 70, 78, 86, 93, 101,
+	108, 116, 123, 131, 139, 146, 154, 162, 169,
+	179, 186, 193, 201, 208, 216, 223, 231, 238,
+};
+
+static int16_t volume_db10(uint8_t percent)
+{
+	return rx_gain_db10[volume_gain_step(percent > 100 ? 100 : percent) + 31];
+}
+
 static void volume(uint8_t percent)
 {
 	// At the bottom the amp is off (speaker_apply), so the gain stays at unity: the I2S copy of the FM audio that
 	// APRS receive reads is scaled by it too
-	int db = percent == 0 ? 0 : (int)percent * 62 / 100 - 31;
+	int db = percent == 0 ? 0 : volume_gain_step(percent);
 	count(hrc6000_set_rx_gain(&r.modem, (int8_t)db));
 	if ((percent == 0) != volume_zero) {
 		volume_zero = percent == 0;
-		speaker_apply(false);
+		speaker_apply();
 	}
 }
 
@@ -1442,8 +1358,11 @@ const hal_radio_t uvf_radio = {
 	.dmr_tx_end = stm32_hrc_dmr_tx_end,
 	.status = status,
 	.audio = audio,
+	.speaker_mute = speaker_mute,
+	.rx_open = uvf_backlight_rx,	// the backlight's PWM reaches received audio only with a carrier (#544)
 	.volume = volume,
 	.volume_pcm = true,	// HR_C6000 4:0x37 scales the codec DAC's PCM as well
+	.volume_db10 = volume_db10,
 	.tx_tone = tx_tone,
 	.tx_tail = tx_tail,
 	.tx_tone_key = tx_tone_key,

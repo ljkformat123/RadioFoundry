@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 The RadioFoundry Authors
+// Copyright (c) 2026 lyra XE1POC (changes)
 // The UI's behavior (docs/ux/information-architecture.md, docs/spec/ui.md): the navigation stack, the keys with
 // one meaning everywhere (P3), Home, quick settings, banners and interruptions, key lock, Recent. No RTOS: ui.c
 // runs it in the UI task and the host simulator runs it on a PC.
@@ -24,6 +25,9 @@
 #include "input/input.h"
 #include "radio/tones.h"
 #include "config.h"
+#if CONFIG_GPS
+#include "position/position.h"
+#endif
 #include "codeplug/codeplug_modes.h"	// CODEPLUG_KIND_NONE
 #if CONFIG_HOTSPOT || (CONFIG_USB_NETWORK && CONFIG_HOSTLINK)
 #include "hostlink/hostlink.h"
@@ -83,6 +87,7 @@ static uint32_t last_use_ms;		// the last key press or call (auto power off)
 static bool off_warned;			// the "switching off in 1 min" banner is up for this idle spell
 static bool ptt_held;			// the PTT key is down (its DOWN came, its UP not yet)
 static bool power_off_due;		// auto power off: the housekeeping task switches off (ui_app_power_off_due)
+static bool soft_off;		// soft off: the latch couldn't switch off, the radio is quiet until a key wakes it
 static bool batt_warned;		// the low battery banner was shown at this level (cleared 3 % above it)
 static uint32_t batt_warned_ms;
 #if CONFIG_DMR
@@ -97,6 +102,8 @@ ui_frame_t *ui_frame(void) { return &stack[sp]; }
 uint8_t ui_depth(void) { return sp; }
 void ui_dirty(void) { dirty = true; }
 static void update_focus_target(void);
+static void soft_off_enter(void);
+static void soft_off_exit(void);
 void ui_focus_changed(void) { update_focus_target(); }
 
 void ui_toast(const char *text)
@@ -147,7 +154,7 @@ static void update_focus_target(void)
 		ui_svc_focus_target(0, false);
 }
 
-#if CONFIG_BACKLIGHT_TEST
+#if CONFIG_BACKLIGHT_TEST || CONFIG_SATELLITE_TLE
 // Screens from the top down to stack level `from` leave the stack: each runs its leave hook (the backlight tests give
 // the light back)
 static void left(uint8_t from)
@@ -157,9 +164,12 @@ static void left(uint8_t from)
 			ui_scr[stack[i].scr]->leave();
 	}
 }
-#define ON_BL_TEST()	(stack[sp].scr == SCR_BL_TEST)
 #else
 #define left(from)	((void)0)
+#endif
+#if CONFIG_BACKLIGHT_TEST
+#define ON_BL_TEST()	(stack[sp].scr == SCR_BL_TEST)
+#else
 #define ON_BL_TEST()	false
 #endif
 
@@ -725,12 +735,9 @@ static void handle_event(const ui_event_t *ev)
 		}
 		break;
 	case UI_EV_POWER_OFF_FAILED:
-		// The latch dropped but the knob keeps the radio on: say so, and wait a whole period again
-		power_off_due = false;
-		off_warned = false;
-		last_use_ms = now;
-		banner(UI_BANNER_INFO, true, 0, TR(AUTOOFF_BANNER_FAILED, "Couldn't switch off"),
-			TR(AUTOOFF_BANNER_TURN_KNOB_OFF, "Turn the knob off"));
+		// The latch dropped but the knob keeps the radio on: soft off instead of the banner and a whole period
+		// again — black screen, receiver asleep, any key wakes it
+		soft_off_enter();
 		break;
 	case UI_EV_SCAN_STOPPED:
 		break;
@@ -885,6 +892,13 @@ static void entry_commit(void)
 }
 
 // --- input helpers ---
+
+// The modes that have digital monitor (the hear all latch): DMR, and P25, NXDN and YSF with every NAC, RAN or DG-ID and every call
+static inline bool digital_monitor_mode(uint8_t mode)
+{
+	return mode == RADIO_MODE_DMR || (CONFIG_P25 && mode == RADIO_MODE_P25) || (CONFIG_NXDN && mode == RADIO_MODE_NXDN) ||
+	       (CONFIG_YSF && mode == RADIO_MODE_YSF);
+}
 
 #if CONFIG_DMR
 static bool dmon_at_press;	// the hear all latch when the monitor key went down (ui_app_key)
@@ -1374,6 +1388,7 @@ static void quick_unavailable(uint8_t kind)
 			TR(QUICK_WHY_FM_ONLY_DMR_CHANNEL, "FM only: this is a DMR channel") :
 			view->ch.mode == RADIO_MODE_P25 ? TR(QUICK_WHY_FM_ONLY_P25_CHANNEL, "FM only: this is a P25 channel") :
 			view->ch.mode == RADIO_MODE_NXDN ? TR(QUICK_WHY_FM_ONLY_NXDN_CHANNEL, "FM only: this is NXDN") :
+			view->ch.mode == RADIO_MODE_YSF ? TR(QUICK_WHY_FM_ONLY_YSF_CHANNEL, "FM only: this is YSF") :
 			TR(WHY_NOT_IN_BUILD, "Not in this build"));
 		break;
 	case QT_PRIVACY: ui_toast(TR(WHY_PRIVACY_NOT_IN_BUILD, "Privacy: not in this build")); break;
@@ -1419,13 +1434,16 @@ static void quick_activate(int tile)
 		ui_st.quick_edit = true;	// the hint row says what Up / Down and the digits do
 		break;
 	case QT_MODE: {
-		// FM, DMR, P25, NXDN in turn: P25 and NXDN where the board runs them (the view may change at once: the
+		// FM, DMR, P25, NXDN, YSF in turn: P25, NXDN and YSF where the board runs them (the view may change at once: the
 		// host simulator)
 		uint32_t feat = ui_svc_features();
 		bool p25 = (feat & UI_FEAT_P25) != 0, nxdn = (feat & UI_FEAT_NXDN) != 0;
+		bool ysf = (feat & UI_FEAT_YSF) != 0;
 		uint8_t to = view->ch.mode == RADIO_MODE_FM ? RADIO_MODE_DMR :
 			view->ch.mode == RADIO_MODE_DMR && p25 ? RADIO_MODE_P25 :
 			(view->ch.mode == RADIO_MODE_DMR || view->ch.mode == RADIO_MODE_P25) && nxdn ? RADIO_MODE_NXDN :
+			(view->ch.mode == RADIO_MODE_DMR || view->ch.mode == RADIO_MODE_P25 || view->ch.mode == RADIO_MODE_NXDN) &&
+				ysf ? RADIO_MODE_YSF :
 			RADIO_MODE_FM;
 		static char msg[12];	// the toast keeps the pointer
 		sbuf_t b;
@@ -1678,6 +1696,22 @@ bool ui_volume_key(const input_event_t *ev)
 	}
 	return false;
 }
+
+#if CONFIG_DMR_TRUNK
+void ui_incoming_call_draw(void)
+{
+	static char name[CODEPLUG_NAME_LEN + 1];
+	(void)ui_contact_name(view->t3.ring_src, false, name);
+	ui_draw_incoming_call(view, &ui_st, name);
+}
+
+bool ui_incoming_call_key(const input_event_t *ev)
+{
+	if (ev->action == ACT_BACK && ev->gesture == GESTURE_PRESS)
+		ui_svc_t3_reject();
+	return true;
+}
+#endif
 
 void ui_emergency_draw(void)
 {
@@ -1935,6 +1969,9 @@ void ui_app_init(void)
 }
 
 uint8_t ui_app_brightness(void) { return ui_st.brightness; }
+bool ui_app_standby_led(void) { return ui_st.standby_led; }
+uint8_t ui_app_standby_led_color(void) { return ui_st.standby_color; }
+uint16_t ui_app_standby_led_ms(void) { return ui_st.standby_ms; }
 
 #if CONFIG_BACKLIGHT_TEST
 // The backlight tests hold the light: the UI task's dim and off times and key wake-ups leave it alone while held
@@ -1958,6 +1995,42 @@ bool ui_app_take_backlight_reapply(void)
 }
 #endif
 bool ui_app_power_off_due(void) { return power_off_due; }
+
+bool ui_app_soft_off(void) { return soft_off; }
+
+// Soft off (UI_EV_POWER_OFF_FAILED: the latch dropped but the knob keeps the supply): the screen goes black, the
+// receiver and the GPS module sleep, and the first key wakes it. The waking key does nothing else, so a key that
+// wakes the radio never acts (and the core also refuses PTT and monitor while asleep)
+static void soft_off_enter(void)
+{
+	if (soft_off)
+		return;
+	soft_off = true;
+	power_off_due = false;
+	off_warned = false;
+	radio_req_standby(true);
+#if CONFIG_GPS
+	position_gps_enable(false);	// the module off too, as Settings > Location > GPS off does
+	board_gps_enable(false);
+#endif
+	dirty = true;
+}
+
+static void soft_off_exit(void)
+{
+	if (!soft_off)
+		return;
+	soft_off = false;
+	last_use_ms = now;	// the wake counts as use: the whole auto-off period starts again
+	last_key_ms = now;
+	off_warned = false;
+	radio_req_standby(false);
+#if CONFIG_GPS
+	position_gps_enable(ui_svc_setting_get(UI_SET_GPS) != 0);
+	board_gps_enable(ui_svc_setting_get(UI_SET_GPS) != 0);
+#endif
+	dirty = true;
+}
 
 static uint16_t clamp_u16(int32_t v) { return (uint16_t)(v < 0 ? 0 : v > 0xFFFF ? 0xFFFF : v); }
 
@@ -2022,6 +2095,12 @@ void ui_apply_setting(uint8_t id, int32_t v)
 	dirty = true;
 }
 
+bool ui_app_key_while_dark(const input_event_t *ev)
+{
+	// PTT and Monitor are live keys; Emergency sends only its long press, so a dark screen must not eat it
+	return ev->action == ACT_PTT || ev->action == ACT_MONITOR || ev->action == ACT_EMERGENCY;
+}
+
 static bool emergency_key(const input_event_t *ev)
 {
 	if (ev->action != ACT_EMERGENCY || ev->gesture != GESTURE_LONG)
@@ -2065,6 +2144,11 @@ static void call_back_key(void)
 
 void ui_app_key(const input_event_t *ev)
 {
+	// Soft off: any key wakes the radio and does nothing else
+	if (soft_off) {
+		soft_off_exit();
+		return;
+	}
 	// A programmed home key (P1, P2: board.home_keys): its function on Home, its arrow everywhere else. Home is the
 	// bottom of the stack, not while a frequency is typed there
 	input_event_t home_ev;
@@ -2097,7 +2181,7 @@ void ui_app_key(const input_event_t *ev)
 	    view->ch.mode == RADIO_MODE_DMR && !view->monitor)
 		ui_toast(dmon_text(!dmon_at_press));
 #endif
-	if (ev->gesture == GESTURE_LONG && ev->value != 0 && view->ch.mode != RADIO_MODE_DMR)
+	if (ev->gesture == GESTURE_LONG && ev->value != 0 && !digital_monitor_mode(view->ch.mode))
 		return;
 	if (ev->action == ACT_PTT)
 		ptt_held = ev->gesture == GESTURE_DOWN;	// PTT sends only DOWN and UP (raw edges)
@@ -2140,6 +2224,12 @@ void ui_app_key(const input_event_t *ev)
 #if CONFIG_HOTSPOT
 	if (in_hotspot()) {
 		hotspot_key(ev);
+		return;
+	}
+#endif
+#if CONFIG_DMR_TRUNK
+	if (stack[sp].scr == SCR_INCOMING_CALL) {
+		(void)ui_scr[SCR_INCOMING_CALL]->key(ev);
 		return;
 	}
 #endif
@@ -2246,6 +2336,12 @@ void ui_app_key(const input_event_t *ev)
 		banner_open();
 		return;
 	}
+#if CONFIG_DMR_TRUNK
+	if (!typing && view->t3.alerting && ev->action == ACT_BACK && ev->gesture == GESTURE_PRESS) {
+		ui_svc_t3_cancel();
+		return;
+	}
+#endif
 	// A banner that waits for the user is over every screen, not just Home: BACK hides it first, wherever it is
 	if (!typing && ui_st.banner.kind != UI_BANNER_NONE && ui_st.banner.hold && ev->action == ACT_BACK &&
 			ev->gesture == GESTURE_PRESS) {
@@ -2278,7 +2374,9 @@ void ui_app_key(const input_event_t *ev)
 // banner a minute before, then the housekeeping task switches off (ui_app_power_off_due)
 static void use_tick(const radio_view_t *v)
 {
-	if (v->state != RS_IDLE || v->scan != 0 || v->hotspot) {
+	if (soft_off)
+		return;	// asleep: the wake key restarts the period (soft_off_exit)
+	if (v->state != RS_IDLE || v->scan != 0 || v->hotspot || v->bcast) {
 		last_use_ms = now;
 		off_warned = false;
 	}
@@ -2301,6 +2399,8 @@ static void battery_tick(const radio_view_t *v)
 {
 	static char text[UI_BANNER_TEXT];
 	uint8_t pct = ui_st.battery_pct;
+	if (soft_off)
+		return;	// asleep: no banners on a black screen; the warning comes on wake, if it still applies
 	if (ui_st.low_batt_pct == 0 || pct == 0)
 		return;
 	if (pct >= ui_st.low_batt_pct + 3u) {
@@ -2328,8 +2428,8 @@ static void hear_all_tick(const radio_view_t *v)
 {
 	if (!ui_st.hear_all_default || !(ui_svc_features() & UI_FEAT_HEAR_ALL) || v->scan != 0)
 		return;
-	if (v->vfo || v->hotspot || v->ch.mode != RADIO_MODE_DMR) {
-		hear_all_key = 0;	// back on a DMR channel later: on again
+	if (v->vfo || v->hotspot || !digital_monitor_mode(v->ch.mode)) {
+		hear_all_key = 0;	// back on a DMR, P25 or NXDN channel later: on again
 		return;
 	}
 	uint32_t key = 0x80000000u | ((uint32_t)v->zone_index << 16) | v->channel_number;
@@ -2403,6 +2503,8 @@ bool ui_app_tick(const radio_view_t *v, uint32_t now_ms)
 #endif
 	now = now_ms;
 	ui_st.now_ms = now_ms;
+	if (soft_off && view->hotspot)
+		soft_off_exit();	// the host started hotspot mode: wake, the receiver has to work
 #if CONFIG_VOLUME_BAR
 	knob_tick(v);
 #endif
@@ -2411,10 +2513,21 @@ bool ui_app_tick(const radio_view_t *v, uint32_t now_ms)
 #if CONFIG_ZONE_EDIT
 	ui_svc_zone_poll();
 #endif
+#if CONFIG_SATELLITE_TLE
+	ui_svc_satellite_poll();
+	ui_satellite_passes_tick();
+#endif
 #if CONFIG_CRASH_SCREEN
 	ui_crash_tick(now_ms);
 #endif
 #if CONFIG_DMR_TRUNK
+	if (stack[sp].scr == SCR_INCOMING_CALL) {
+		if (v->t3.ring_src == 0)
+			ui_pop();
+	} else if (v->t3.ring_src != 0 && stack[sp].scr != SCR_EMERGENCY) {
+		ui_push(SCR_INCOMING_CALL, 0);
+		wake_req = true;
+	}
 	// Back on the trunked system from its fallback channel (dmr-trunking.md 12.5): the radio beeped, the toast names it
 	static uint32_t backs_seen;
 	if (v->t3.backs != backs_seen) {
@@ -2547,6 +2660,22 @@ bool ui_app_tick(const radio_view_t *v, uint32_t now_ms)
 		ui_st.unread = unread;
 		dirty = true;
 	}
+#if CONFIG_GPS
+	// The GPS icon, once a second: fitted (a module is detected after start-up), off or on as the position service
+	// was last told (the menu, the debug link), then a fix or not (a fix counts for a minute: position.md)
+	static uint32_t gps_checked;
+	if (now - gps_checked >= 1000u) {
+		gps_checked = now;
+		ui_position_t p;
+		uint8_t pw = ui_svc_gps_power();
+		uint8_t gps = pw == UI_GPS_POWER_NONE ? UI_GPS_NONE : pw == UI_GPS_POWER_OFF ? UI_GPS_OFF :
+			      ui_svc_position(&p) && p.fix ? UI_GPS_FIX : UI_GPS_SEARCH;
+		if (gps != ui_st.gps) {
+			ui_st.gps = gps;
+			dirty = true;
+		}
+	}
+#endif
 	bool scanning = v->scan != 0 && v->scan != 3;	// 3: dual watch, which Home shows on its own (ui_dual.c)
 #if CONFIG_DUAL_WATCH
 	if (ui_dual_tick(v, now_ms))
@@ -2629,6 +2758,9 @@ bool ui_app_tick(const radio_view_t *v, uint32_t now_ms)
 	battery_tick(v);
 	// A banner's countdown ticks; one that waits for the user has none
 	bool fast = v->state == RS_TX || stack[sp].scr == SCR_DIAG || (ui_st.banner.kind != UI_BANNER_NONE && !ui_st.banner.hold);
+#if CONFIG_SUPPORT_INFO
+	fast = fast || (stack[sp].scr == SCR_ABOUT && ui_about_busy());	// each redraw hashes a step of the image
+#endif
 #if CONFIG_HOTSPOT
 	fast = fast || in_hotspot();
 	if (!in_hotspot())
@@ -2651,6 +2783,10 @@ void ui_app_draw(void)
 	uint32_t before = ui_strip_draws;
 	dirty = false;
 	draws++;
+	if (soft_off) {
+		gfx_clear(RGB565(0, 0, 0));	// asleep: black, the backlight stays off (ui.c backlight_target)
+		return;
+	}
 #if CONFIG_VOLUME_BAR
 	uint32_t hints = ui_hint_draws;
 #endif
@@ -2710,6 +2846,7 @@ void ui_app_status(ui_app_status_t *s)
 	s->focus = stack[sp].scr == SCR_QUICK ? ui_st.quick_focus : stack[sp].focus;
 	s->count = (d->flags & SF_LIST) && d->count != NULL ? d->count() : 0;
 	s->locked = ui_st.locked;
+	s->gps = ui_st.gps;
 	s->unlock_key = has_quick_key ? "quick" : has_unlock_key ? "back" : "none";
 	s->field_use = (d->flags & SF_FIELD) != 0;
 	s->banner = ui_st.banner.kind != UI_BANNER_NONE ? ui_st.banner.title : "";

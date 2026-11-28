@@ -13,5 +13,10 @@ const char *ui_screen_name(void);
 void ui_get_status(ui_app_status_t *st);
 // The backlight level last set, percent (any task)
 uint8_t ui_backlight(void);
+// Settings > Display > Screen-off flash: the LED beacon while the screen is off (any task), its color
+// (0 green, 1 red, 2 green and red) and its period in ms
+bool ui_standby_led(void);
+uint8_t ui_standby_led_color(void);
+uint16_t ui_standby_led_ms(void);
 
 #endif

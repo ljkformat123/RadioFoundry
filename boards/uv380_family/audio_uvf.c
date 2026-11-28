@@ -33,6 +33,7 @@ static void probe_copy(const int16_t *lr)
 // Clock idle high (spec 4.4)
 static const stm32_i2s_pcm_cfg_t i2s_cfg = {
 	.ckpol = true,
+	.prompt_fifo = true,	// speaker PCM while the chip is in FM mode: beeps, and NXDN's FM copy
 #if CONFIG_AUDIO_PROBE
 	.raw_block = probe_copy,
 #endif
@@ -70,138 +71,18 @@ __attribute__((weak)) void uvf_speaker_pcm(bool on)
 
 static void speaker_pcm(bool on)
 {
+	stm32_i2s_pcm_speaker(on);
 	uvf_speaker_pcm(on);
 }
 
 // --- hal_audio_t ---
 
-// --- the stream's own hang ---
-//
-// In DMR the voice stream runs through a call, so a beep only swaps the callback (i2s_pcm.c: "already streaming: just
-// the new callback") and never touches the codec clock or the I2S enable. In FM every beep started the stream from
-// scratch: hw_start() disables I2S3/I2S3ext, re-arms both DMAs and then waits for the WS edges (up to WS_TIMEOUT_MS
-// each), so a key pressed while the previous beep's tail was still draining could land in that window and be lost —
-// exactly the keys DMR never loses. Holding the stream for a moment after the last beep gives FM the DMR case: the
-// next key's start() returns at once with only the callback replaced
-#define AUDIO_HOLD_MS	3000u		// matches uvf_speaker_warm's hang: one window, one codec state
-
-static volatile bool soft_hold;
-static volatile uint32_t soft_hold_ms;
-
-static void silence_block(const int16_t *mic, int16_t *spk, void *ctx)
-{
-	(void)mic;
-	(void)ctx;
-	memset(spk, 0, AUDIO_BLOCK_SAMPLES * sizeof spk[0]);
-}
-
-// --- FM receive on the stream (the FM fit for the whole codec switch question) ---
-//
-// In FM the HR_C6000 puts its receive audio on the I2S input as well (hardware-dm1701.md 8: the feed-through, 4:0x36,
-// gates the digital stream too, RMS about 2000 on a signal). With 0x10 = 0x6E the line out plays the codec DAC, which
-// is our PCM: so the block callback can hand the FM audio back out sample for sample while the stream stays up. That
-// is what removes the last FM/DMR difference: no 0x80 <-> 0x6E switch under the keys, so no click and no beep front
-// landing in that switch, and the stream never has to start (hw_start(), the WS wait) for a beep at all
-static bool start_retry(audio_block_cb_t cb, void *ctx);	// below
-
-static volatile bool fm_loop;
-
-static void fm_loop_block(const int16_t *mic, int16_t *spk, void *ctx)
-{
-	(void)ctx;
-	memcpy(spk, mic, AUDIO_BLOCK_SAMPLES * sizeof spk[0]);
-}
-
-// What the stream plays when no sound is asked for: the FM audio (radio_uvf.c audio()) or silence
-static audio_block_cb_t idle_block(void)
-{
-	// Never the FM audio: a copy of the receive audio handed back out through the codec fed itself and broke
-	// into the machine-gun burst heard after every key. FM receive stays on the chip's own analog path (0x10 = 0x80)
-	return silence_block;
-}
-
-// radio_uvf.c: the FM receive wants its audio on the stream. on = the stream stays up and loops the FM audio,
-// off = back to silence and the core's usual hang before the stream stops
-void uvf_audio_fm_loop(bool on)
-{
-	(void)on;
-	fm_loop = false;	// see idle_block(): the FM audio is never looped through the PCM stream
-}
-
-bool uvf_audio_fm_looping(void)
-{
-	return fm_loop;
-}
-
-// hw_start() gives up after WS_TIMEOUT_MS per edge when the codec's I2S clock has not come up yet (it was just
-// switched to its PCM mode, or just woken): the core then drops that beep as "no stream". DMR never sees this (its
-// 0x6E and its stream are up through the call); in FM three tries cost less than a lost beep
-static bool start_retry(audio_block_cb_t cb, void *ctx)
-{
-	for (uint8_t i = 0; i < 3; i++) {
-		if (stm32_i2s_pcm_start(&i2s_cfg, cb, ctx)) {
-			return true;
-		}
-		if (i != 2) {
-			vTaskDelay(pdMS_TO_TICKS(10));
-		}
-	}
-	return false;
-}
-
 static bool start(audio_block_cb_t cb, void *ctx)
 {
-	soft_hold = false;	// a sound again: the hold is over, this callback takes the stream
-	return start_retry(cb, ctx);
+	return stm32_i2s_pcm_start(&i2s_cfg, cb, ctx);
 }
 
-// Called at a key press, before any beep exists (uvf_speaker_warm): bring the stream up on silence, so the beep's own
-// start() finds "already streaming" and never runs hw_start(). The WS alignment and the DMA re-arm happen here, in the
-// radio task, while nothing is waiting to be heard
-void uvf_audio_prestart(void)
-{
-	if (stm32_i2s_pcm_running()) {
-		return;
-	}
-	if (start_retry(idle_block(), NULL)) {
-		soft_hold = true;
-		soft_hold_ms = hal_millis();
-	}
-}
-
-// The core's stop: keep the clock, the WS phase and the DMA where they are for AUDIO_HOLD_MS, playing silence, and
-// let uvf_audio_idle_service() end it. The speaker route and the codec register are the board's business (radio_uvf.c)
-static void stop(void)
-{
-	if (!stm32_i2s_pcm_running()) {
-		stm32_i2s_pcm_stop();
-		return;
-	}
-	stm32_i2s_pcm_start(&i2s_cfg, idle_block(), NULL);	// already running: just the callback
-	soft_hold = true;
-	soft_hold_ms = hal_millis();
-}
-
-// Called every radio poll (radio_uvf.c status()): the hold past AUDIO_HOLD_MS really stops the stream
-void uvf_audio_idle_service(void)
-{
-	if (fm_loop) {
-		return;		// FM receive keeps the stream up: that is the point of it
-	}
-	if (!soft_hold) {
-		return;
-	}
-	if ((uint32_t)(hal_millis() - soft_hold_ms) < AUDIO_HOLD_MS) {
-		return;
-	}
-	soft_hold = false;
-	stm32_i2s_pcm_stop();
-}
-
-// A second of amplifier hang: in FM the codec switch (0x10 back to 0x80 and again) costs the next beep its front,
-// so a burst of keys has to share one switch. DMR needs none of it (0x6E from the start)
-const hal_audio_t uvf_audio = { .start = start, .stop = stop, .speaker_pcm = speaker_pcm,
-				.speaker_warm = uvf_speaker_warm, .speaker_hang_s = 3,
+const hal_audio_t uvf_audio = { .start = start, .stop = stm32_i2s_pcm_stop, .speaker_pcm = speaker_pcm,
 				.stream_stats = stm32_i2s_pcm_stream_stats };
 
 #if CONFIG_NET_USRP

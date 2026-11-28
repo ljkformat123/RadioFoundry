@@ -58,6 +58,7 @@ enum {
 	DL_VIEW_P25,		// P25 on the channel: the call, settings, engine and voice counters (debuglink_view_p25.c)
 	DL_VIEW_P25_TRUNK,	// a trunked P25 channel's follower: system, channels, call followed, counters (the same file)
 	DL_VIEW_NXDN,		// NXDN on the channel: the call, settings, the provider's fit, engine counters (debuglink_view_nxdn.c)
+	DL_VIEW_YSF,		// YSF on the channel: the call, settings, the provider's fit, engine counters (debuglink_view_ysf.c)
 	DL_VIEW_COUNT
 };
 #define DL_VIEW_VERSION		5	// bumped when a key changes meaning or goes away (new keys don't bump it)
@@ -90,6 +91,9 @@ void debuglink_p25_reset(void);
 // The nxdn section (debuglink_view_nxdn.c; "nxdn.built=0" without CONFIG_NXDN) and its counter reset
 void debuglink_view_nxdn(const radio_view_t *v, dl_text_t *t);
 void debuglink_nxdn_reset(void);
+// The ysf section (debuglink_view_ysf.c; "ysf.built=0" without CONFIG_YSF) and its counter reset
+void debuglink_view_ysf(const radio_view_t *v, dl_text_t *t);
+void debuglink_ysf_reset(void);
 void debuglink_view_keys(dl_text_t *t);
 enum {
 	DL_OP_SCAN = 20, DL_OP_SCAN_VFO = 21, DL_OP_BEEP = 22, DL_OP_TONE_BURST = 23, DL_OP_SETTING = 24,
@@ -131,6 +135,8 @@ void debuglink_dmr_data_reset(void);
 // The audio probe (debuglink_audio_probe.c, docs/spec/debuglink.md 3.14): built without CONFIG_AUDIO_PROBE it answers
 // unavailable
 size_t debuglink_cmd_audio_probe(const uint8_t *req, uint16_t len, uint8_t *out, size_t cap);
+// Satellite TLE transaction protocol (debuglink_satellite.c); unavailable without CONFIG_SATELLITE_TLE
+size_t debuglink_cmd_satellite(const uint8_t *req, uint16_t len, uint8_t *out, size_t cap);
 // The dmr_ext section (debuglink_view_ext.c): emergency state, alert and settings, the ETSI data counters, CW ID
 void debuglink_view_dmr_ext(dl_text_t *t);
 // The roam section (debuglink_view_roam.c); built without CONFIG_DMR_ROAMING it says "roam.built=0"
@@ -184,6 +190,7 @@ size_t debuglink_cmd_iddb(const uint8_t *req, uint16_t len, uint8_t *out, size_t
 // A key of the codeplug settings area (debuglink_cpkv.c, docs/spec/debuglink.md 3.27): DL_CMD_CPKV. Unavailable
 // without the DMR data core or Tier III trunking, the features that read keys
 size_t debuglink_cmd_cpkv(const uint8_t *req, uint16_t len, uint8_t *out, size_t cap);
+size_t debuglink_cmd_font(const uint8_t *req, uint16_t len, uint8_t *out, size_t cap);
 
 // A Tier III trunked system (debuglink_t3.c, docs/spec/debuglink.md 3.26): DL_CMD_T3 and the t3 section ("t3.built=0"
 // without CONFIG_DMR_TRUNK)
@@ -209,6 +216,8 @@ size_t debuglink_cmd_watchdog(const uint8_t *req, uint16_t len, uint8_t *out, si
 void debuglink_watchdog_service(void);
 // The board's hardware options (debuglink_hwopt.c, docs/spec/debuglink.md 3.25, hal_hwopt.h): DL_CMD_HWOPT
 size_t debuglink_cmd_hwopt(const uint8_t *req, uint16_t len, uint8_t *out, size_t cap);
+// DL_CMD_SUPPORT: the support info (debuglink_support.c, CONFIG_SUPPORT_INFO)
+size_t debuglink_cmd_support(const uint8_t *req, uint16_t len, uint8_t *out, size_t cap);
 
 // The debug link's own counters: frames answered, bad CRC, too long, timed out (debuglink.c)
 #define DL_LINK_COUNTERS	4

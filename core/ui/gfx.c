@@ -366,6 +366,23 @@ static void icon_glyph(const font_t *f, int x, int y, uint8_t c, color_t fg)
 	}
 	int t = f->w >= 12 ? 2 : 1;			// line width
 	int l = x, r = x + f->w - 1 - (f->w >= 8 ? 1 : 0), tp = y + top, bt = y + top + rows - 1;
+	if (c == 0x87 || c == 0x88) {
+		bool up = c == 0x87;
+		int cx = l + (r - l + 1 - t) / 2;
+		int head = (bt - tp) / 3;
+		if (head > (r - l) / 2)
+			head = (r - l) / 2;
+		if (head < 1)
+			head = 1;
+		int stem_top = up ? tp + head : tp;
+		int stem_bottom = up ? bt : bt - head;
+		gfx_fill(cx, stem_top, t, stem_bottom - stem_top + 1, fg);
+		int tip = up ? tp : bt;
+		int back = up ? tp + head : bt - head;
+		seg(cx - head, back, cx, tip, t, fg);
+		seg(cx + head, back, cx, tip, t, fg);
+		return;
+	}
 	if (c == 0x86) {
 		// Reply: a riser on the right, the bar back along the lower third, the head at its left end
 		int mid = tp + (bt - tp) * 2 / 3;
@@ -423,6 +440,8 @@ static void fallback_glyph(const font_t *f, int x, int y, uint8_t c, color_t fg)
 	case 0x84:
 	case 0x85:
 	case 0x86:
+	case 0x87:
+	case 0x88:
 		icon_glyph(f, x, y, c, fg);
 		break;
 	default:	// not drawable: a box
@@ -494,7 +513,7 @@ uint32_t gfx_utf8_next(const char *s, int *len)
 			return cp;
 		}
 	}
-	*len = 1;			// ASCII, a glyph byte (0x80..0x85), or Latin-1 text
+	*len = 1;			// ASCII, a glyph byte (0x80..0x88), or Latin-1 text
 	return b[0];
 }
 
@@ -545,9 +564,16 @@ static int text(const font_t *f, int x, int y, const char *s, color_t fg, bool o
 		if (opaque)
 			gfx_fill(x, y, adv, f->h, bg);
 		const uint8_t *g;
+#if CONFIG_CJK_SPI
+		uint8_t spibuf[CJK_FONT_BYTES];	// the glyphs are in the data flash (cjk_font.h): one read fills this
+#endif
 		int top = 0, rows = 0;
 		if (cp > 0xFF) {
+#if CONFIG_CJK_SPI
+			g = cjk_font_load(cp, spibuf) ? spibuf : NULL;
+#else
 			g = cjk_font_glyph(cp);
+#endif
 			// On the Latin baseline, not on the cell's bottom: the rows under the baseline are room for Latin
 			// descenders, and a CJK glyph placed in them rides 3-4 px low beside the capitals of a 8x16 or 12x24
 			// line. A cell no taller than the glyph has no such room and keeps the old bottom alignment
@@ -638,7 +664,10 @@ static int text(const font_t *f, int x, int y, const char *s, color_t fg, bool o
 	}
 #endif
 #ifdef GFX_FIT_TRACE
-	trace(GFX_TRACE_TEXT, x0, y, x - x0, f->h, s0);	// after the glyph cells gfx_text_bg fills
+	// The whole text's width, not the cells drawn: the loop stops at the clip's edge, so a glyph that starts past it
+	// is dropped without a pixel cut, and a trace of the drawn cells alone hid that from the layout check ("CC12"
+	// shown as "CC1" at the screen's edge, #837). After the glyph cells gfx_text_bg fills
+	trace(GFX_TRACE_TEXT, x0, y, gfx_text_width(f, s0), f->h, s0);
 #endif
 	return x;
 }
