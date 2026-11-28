@@ -26,10 +26,16 @@
 #define UVF_BL_TAIL_US		38u
 #define UVF_BL_TAIL		(UVF_BL_TIMER_HZ / 1000000u * UVF_BL_TAIL_US)	// timer counts (2736)
 
+// The shortest pulse the stage follows: below it the LEDs stay dark even though the pin was driven (a pulse of a count
+// or two, 14..28 ns, lit nothing at all; measured on the radio, 2026-11-20). 40 us is under the 62 us a 20 % level at
+// 2 kHz gives, which did light the panel
+#define UVF_BL_MIN_US		40u
+#define UVF_BL_MIN		(UVF_BL_TIMER_HZ / 1000000u * UVF_BL_MIN_US)	// timer counts (2880)
+
 // CC1 value for a brightness: the count at which the pin clears, so that the pulse plus the tail is the brightness's
-// share of the period. A level too low for the tail keeps one count: lit stays lit, at the least the period allows
-// (about 8 %). quiet (transmitting, or receive audio open): any lit level is fully on. 0 = off, UVF_BL_PERIOD = fully
-// on (the caller drives the pin steady for both)
+// share of the period. A level whose pulse would be shorter than UVF_BL_MIN keeps that pulse instead: lit stays lit,
+// brighter than the level asked for, rather than a dark screen (local change, BG5FLU). quiet (transmitting, or receive
+// audio open): any lit level is fully on. 0 = off, UVF_BL_PERIOD = fully on (the caller drives the pin steady for both)
 static inline uint16_t uvf_bl_compare(uint8_t percent, bool quiet)
 {
 	if (percent == 0) {
@@ -39,7 +45,10 @@ static inline uint16_t uvf_bl_compare(uint8_t percent, bool quiet)
 		return UVF_BL_PERIOD;
 	}
 	uint32_t lit = (uint32_t)percent * UVF_BL_PERIOD / 100u;
-	return lit > UVF_BL_TAIL ? (uint16_t)(lit - UVF_BL_TAIL) : 1u;
+	if (lit <= UVF_BL_TAIL + UVF_BL_MIN) {
+		return (uint16_t)UVF_BL_MIN;
+	}
+	return (uint16_t)(lit - UVF_BL_TAIL);
 }
 
 #endif

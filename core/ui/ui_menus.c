@@ -5462,9 +5462,7 @@ bool ui_about_busy(void)
 // chip
 static void about_support(sbuf_t *b)
 {
-	sb_str(b, TR(ABOUT_LABEL_SOURCE, "Source: "));
-	sb_str(b, tr(support_source_text(support_source())));
-	sb_chr(b, '\n');
+	// The Source line (where the build came from) is left out: the localized images drop it, as v16k does
 	uint8_t d[SHA256_LEN];
 	uint32_t addr, len;
 	about_hashing = false;
@@ -5519,6 +5517,12 @@ static const char *about_text(void)
 		sb_str(&b, TR(ABOUT_BODY_DATE, "Date: "));
 		sb_str(&b, RFOUNDRY_GIT_DATE);
 	}
+	// The localized build's own two lines, in the place the v16k image shows them: right after the date, before the
+	// radio model (汉化 first, then 警告)
+	// the build time alone (261128.1458 -> 1458): the date is on the line above, and the full tag plus "V21" wrapped
+	sb_str(&b, "\n汉化： BG5FLU V21f ");
+	sb_str(&b, RFOUNDRY_BUILD_TAG + 7);
+	sb_str(&b, "\n警告： 禁止商用 禁止转售");
 	sb_chr(&b, '\n');
 	sb_str(&b, TR(BODY_RADIO, "Radio: "));
 	sb_str(&b, board.name);
@@ -5540,6 +5544,7 @@ static const char *about_text(void)
 	sb_chr(&b, '\n');
 	sb_str(&b, TR(ABOUT_BODY_CONTRIBUTORS, "Contributors:"));
 	sb_str(&b, "\ngithub.com/radiofoundry");	// on its own line, as a maintainer is: it never wraps after the label
+	// The localized build's own two lines live above, next to the date (see about_text)
 	for (unsigned i = 0; i < RFOUNDRY_ABOUT_THIRD_PARTY_COUNT; i++) {
 		sb_chr(&b, '\n');
 		sb_str(&b, about_third[i][0]);

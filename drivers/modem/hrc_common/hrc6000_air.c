@@ -77,7 +77,7 @@
 #define CAL_DEV_HZ	1944u	// the DMR outer deviation the calibrated pair gives
 #define C4FM_SCALE	946u	// a C4FM receiver reads this much (/1000) of the chip's outer deviation (measured, 10.3)
 #define TX_DEV_MIN	1050u	// the pair scales linearly over this range
-#define TX_DEV_MAX	2400u
+#define TX_DEV_MAX	2700u
 #define RX_DEV_MIN	1700u	// the correlator: syncs at 1800 Hz C4FM, 1944 and 2700 Hz; never at 1350 or 1050
 #define RX_DEV_MAX	2900u
 #define RX_SPACING_MAX	1728u	// sync spacing checked on air (12 records)
@@ -145,7 +145,10 @@ static int rx_sync(const air_profile_t *p)
 static uint32_t tx_target_hz(const air_profile_t *p)
 {
 	uint32_t d = p->dev_outer_hz;
-	return p->shape == AIR_SHAPE_C4FM ? (d * 1000u + C4FM_SCALE / 2) / C4FM_SCALE : d;
+	uint32_t t = p->shape == AIR_SHAPE_C4FM ? (d * 1000u + C4FM_SCALE / 2) / C4FM_SCALE : d;
+	// YSF wide asks for 2700 Hz of outer deviation, above the pair's checked 2400 Hz (Mod1 0x65). The receive
+	// side keeps dev_outer_hz; only the transmit target is held at the checked limit
+	return t > TX_DEV_MAX ? TX_DEV_MAX : t;
 }
 
 uint32_t hrc6000_air_fit(const air_profile_t *p)

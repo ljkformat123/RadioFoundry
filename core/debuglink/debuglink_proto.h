@@ -40,6 +40,15 @@ enum {
 	DL_CMD_AIR		= 0x24,	// the air interface on the bench: tap, session, RX, TX (CONFIG_AIR_RAW; debuglink_air.c, 3.28)
 	DL_CMD_SUPPORT		= 0x25,	// the support info: source, hardware, image hash (CONFIG_SUPPORT_INFO; debuglink_support.c, 3.29)
 	DL_CMD_SATELLITE	= 0x26,	// selected satellite TLE records (debuglink_satellite.c; CONFIG_SATELLITE_TLE, 3.30)
+	DL_CMD_FONT		= 0x27,	// the CJK glyph blob in the data flash: info, erase, write, read (CONFIG_CJK_SPI; debuglink_font.c, 3.31)
+};
+
+// DL_CMD_FONT operations (first payload byte; docs/spec/debuglink.md 3.31). Little endian
+enum {
+	DL_FONT_INFO = 1,	// -> present u8 (a blob this image reads), address u32, bytes u32, sectors u8
+	DL_FONT_ERASE = 2,	// sector u8: erase that 4 KB sector of the blob (up to 400 ms)
+	DL_FONT_WRITE = 3,	// offset u32, then 1-44 bytes: program them (the blob is 105,656 B, past 64 KB)
+	DL_FONT_READ = 4,	// offset u32, length u16 -> the bytes, for the host's compare
 };
 
 // DL_CMD_T3 operations (first payload byte; docs/spec/debuglink.md 3.26). Little endian

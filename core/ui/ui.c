@@ -83,6 +83,21 @@ const char *ui_screen_name(void)
 	return status.screen != NULL ? status.screen : "home";
 }
 
+bool ui_standby_led(void)
+{
+	return ui_app_standby_led();
+}
+
+uint8_t ui_standby_led_color(void)
+{
+	return ui_app_standby_led_color();
+}
+
+uint16_t ui_standby_led_ms(void)
+{
+	return ui_app_standby_led_ms();
+}
+
 uint8_t ui_backlight(void)
 {
 	return (backlight_now > 100u) ? 100u : backlight_now;	// 0xFF: not set yet, full at start-up

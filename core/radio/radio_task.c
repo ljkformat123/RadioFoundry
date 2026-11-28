@@ -73,6 +73,9 @@ static radio_p25_settings_t pending_p25;	// radio_req_p25_settings -> the radio 
 #endif
 #if CONFIG_NXDN
 static radio_nxdn_settings_t pending_nxdn;	// radio_req_nxdn_settings -> the radio task, under view_lock
+#if CONFIG_YSF
+static radio_ysf_settings_t pending_ysf;	// radio_req_ysf_settings -> the radio task, under view_lock
+#endif
 #endif
 #if CONFIG_AIR_RAW
 static volatile bool bench_held, bench_keyed;	// published sm.air_bench, sm.bench_keyed
@@ -296,6 +299,15 @@ static void radio_task(void *arg)
 					n = pending_nxdn;
 					xSemaphoreGive(view_lock);
 					radio_nxdn_set_settings(&n);
+					radio_sm_request(&sm, &req, hal_millis());
+#endif
+#if CONFIG_YSF
+				} else if (req.type == RREQ_YSF_SET) {
+					radio_ysf_settings_t y;
+					xSemaphoreTake(view_lock, portMAX_DELAY);
+					y = pending_ysf;
+					xSemaphoreGive(view_lock);
+					radio_ysf_set_settings(&y);
 					radio_sm_request(&sm, &req, hal_millis());
 #endif
 				} else if (req.type == RREQ_SETTINGS) {
@@ -721,6 +733,18 @@ void radio_req_nxdn_settings(const radio_nxdn_settings_t *s)
 	post(RREQ_NXDN_SET, 0, pdMS_TO_TICKS(50));
 }
 #endif
+#if CONFIG_YSF
+void radio_req_ysf_settings(const radio_ysf_settings_t *s)
+{
+	if (view_lock == NULL) {
+		return;
+	}
+	xSemaphoreTake(view_lock, portMAX_DELAY);
+	pending_ysf = *s;
+	xSemaphoreGive(view_lock);
+	post(RREQ_YSF_SET, 0, pdMS_TO_TICKS(50));
+}
+#endif
 
 #if CONFIG_AIR_RAW
 // The air interface bench's way to the radio (debuglink_air_core_t), from the debug link task. Enter and keying wait
@@ -872,6 +896,13 @@ void radio_get_sfr_settings(uint8_t *rx, uint8_t *cwid)
 	*rx = p->sfr_rx;
 	*cwid = p->sfr_cwid;
 	xSemaphoreGive(view_lock);
+}
+
+// Soft off (UI_EV_POWER_OFF_FAILED): this tree's UI still calls it, but the radio core here has no standby
+// request, so the receiver keeps running. The screen-off behaviour lives in core/ui/ui_app.c and is unaffected.
+void radio_req_standby(bool on)
+{
+	(void)on;
 }
 
 void radio_req_power_off(void)

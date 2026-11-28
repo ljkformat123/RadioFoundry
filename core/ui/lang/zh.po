@@ -232,12 +232,12 @@ msgstr "请用旋钮关机"
 #: core/ui/ui_app.c
 msgctxt "SHARE_BANNER_CHANNEL_FROM"
 msgid "⤓ Channel from "
-msgstr "⤓ 信道来自 "
+msgstr "信道来自 "
 
 #: core/ui/ui_app.c
 msgctxt "SHARE_BANNER_ZONE_FROM"
 msgid "⤓ Zone from "
-msgstr "⤓ 区域来自 "
+msgstr "区域来自 "
 
 #: core/ui/ui_app.c
 msgctxt "SHARE_BANNER_NOT_SENT_TO"
@@ -992,7 +992,7 @@ msgstr "本机无法接收 APRS"
 #: core/ui/ui_aprs.c
 msgctxt "HINT_0_9_PICK_BACK"
 msgid "0-9 pick  Back"
-msgstr "0-9 选  返回"
+msgstr "0-9 选择  返回"
 
 #: core/ui/ui_aprs.c
 msgctxt "APRS_TITLE_HEARD"
@@ -1692,7 +1692,7 @@ msgstr "输入"
 #: core/ui/ui_menus.c
 msgctxt "MSG_ROW_WRITE"
 msgid "Write..."
-msgstr "编写……"
+msgstr "编写......"
 
 #: core/ui/ui_menus.c
 msgctxt "MSG_LABEL_REQUEST_ACK"
@@ -1847,12 +1847,12 @@ msgstr "新建区域"
 #: core/ui/ui_menus.c
 msgctxt "ZONE_VALUE_HERE_AND"
 msgid "Here, "
-msgstr "此处， "
+msgstr "当前使用 "
 
 #: core/ui/ui_menus.c
 msgctxt "ZONE_VALUE_HERE"
 msgid "Here"
-msgstr "此处"
+msgstr "当前使用"
 
 #: core/ui/ui_menus.c core/ui/ui_svc_zone.c
 msgctxt "UNIT_CHANNEL"
@@ -1912,12 +1912,12 @@ msgstr "区域选项"
 #: core/ui/ui_menus.c
 msgctxt "SHARE_ROW_ZONE_TO"
 msgid "⤒ Share zone to..."
-msgstr "⤒ 共享区域至……"
+msgstr "共享区域至......"
 
 #: core/ui/ui_menus.c
 msgctxt "SHARE_ROW_CHANNEL_TO"
 msgid "⤒ Share channel to..."
-msgstr "⤒ 共享信道至……"
+msgstr "共享信道至......"
 
 #: core/ui/ui_menus.c
 msgctxt "WHY_ZONE_SHARING_NOT_IN_BUILD"
@@ -1997,7 +1997,7 @@ msgstr "正在保存：请重试"
 #: core/ui/ui_menus.c
 msgctxt "SHARE_TOAST_IMPORTING"
 msgid "Importing..."
-msgstr "正在导入……"
+msgstr "正在导入......"
 
 #: core/ui/ui_menus.c core/ui/ui_svc_zone.c
 msgctxt "SHARE_ERR_NO_CHANNEL_IN_BANDS"
@@ -2042,12 +2042,12 @@ msgstr " 个集群信道不可用：系统未设置"
 #: core/ui/ui_menus.c
 msgctxt "SHARE_TITLE_CHANNEL_RECEIVED"
 msgid "{Channel Share Received ⤓|Ch Share Received ⤓|Ch Received ⤓|Ch Received}"
-msgstr "{收到信道共享 ⤓|收到信道共享 ⤓|收到信道 ⤓|收到信道}"
+msgstr "{收到信道共享|收到信道共享|收到信道|收到信道}"
 
 #: core/ui/ui_menus.c
 msgctxt "SHARE_TITLE_ZONE_RECEIVED"
 msgid "{Zone Share Received ⤓|Zone Received ⤓|Zone Received}"
-msgstr "{收到区域共享 ⤓|收到区域 ⤓|收到区域}"
+msgstr "{收到区域共享|收到区域|收到区域}"
 
 #: core/ui/ui_menus.c
 msgctxt "SHARE_EMPTY_NO_SHARE_WAITING"
@@ -2462,7 +2462,7 @@ msgstr "空信道"
 #: core/ui/ui_menus.c
 msgctxt "HINT_OK_CHANGE_HOLD_OK_SAVE"
 msgid "{OK change  hold OK save  Back|OK change  hold OK save}"
-msgstr "{OK 改  长按 OK 保存  返回|OK 改  长按 OK 保存}"
+msgstr "{OK修改  长按OK保存  返回|OK修改  长按OK保存}"
 
 #: core/ui/ui_menus.c
 msgctxt "CHAN_HINT_TUNE"
@@ -3215,6 +3215,21 @@ msgid "Contributors:"
 msgstr "贡献者:"
 
 #: core/ui/ui_menus.c
+msgctxt "LOCALIZATION"
+msgid "Localization: "
+msgstr "汉化： "
+
+#: core/ui/ui_menus.c
+msgctxt "DECLARATION"
+msgid "Declaration: "
+msgstr "警告： "
+
+#: core/ui/ui_menus.c
+msgctxt "NO_COMMERCIAL_USE_NO_RESALE"
+msgid "no commercial use, no resale"
+msgstr "禁止商用 禁止转售"
+
+#: core/ui/ui_menus.c
 msgctxt "ABOUT_BODY_FONT_SPLEEN"
 msgid "Spleen font: BSD-2-Clause"
 msgstr "Spleen 字体：BSD-2-Clause"
@@ -3267,7 +3282,7 @@ msgstr "需区域内两个同通话组站点。"
 #: core/ui/ui_menus.c
 msgctxt "ROAM_BODY_SEARCHING"
 msgid "Searching sites..."
-msgstr "正在搜索站点……"
+msgstr "正在搜索站点......"
 
 #: core/ui/ui_menus.c
 msgctxt "ROAM_BODY_SITE"
@@ -3877,17 +3892,17 @@ msgstr "FM 空闲音"
 #: core/ui/ui_menus.c
 msgctxt "SIG_ROW_START_STEPS"
 msgid "Start steps"
-msgstr "起始步骤"
+msgstr "起始音"
 
 #: core/ui/ui_menus.c
 msgctxt "SIG_ROW_END_STEPS"
 msgid "End steps"
-msgstr "结束步骤"
+msgstr "结束音"
 
 #: core/ui/ui_menus.c
 msgctxt "SIG_ROW_IDLE_STEPS"
 msgid "Idle steps"
-msgstr "空闲步骤"
+msgstr "空闲音"
 
 #: core/ui/ui_menus.c
 msgctxt "SET_LABEL_BRIGHTNESS"
@@ -3898,6 +3913,66 @@ msgstr "亮度"
 msgctxt "SET_LABEL_BACKLIGHT_DIM_OFF"
 msgid "Backlight Dim/Off"
 msgstr "背光变暗/关闭"
+
+#: core/ui/ui_menus.c
+msgctxt "SET_LABEL_STANDBY_LED"
+msgid "Screen-off flash"
+msgstr "息屏闪灯"
+
+#: core/ui/ui_menus.c
+msgctxt "SET_LABEL_STANDBY_MS"
+msgid "Flash period"
+msgstr "闪灯间隔"
+
+#: core/ui/ui_menus.c
+msgctxt "SET_VALUE_STANDBY_GREEN"
+msgid "Green"
+msgstr "绿"
+
+#: core/ui/ui_menus.c
+msgctxt "SET_VALUE_STANDBY_RED"
+msgid "Red"
+msgstr "红"
+
+#: core/ui/ui_menus.c
+msgctxt "SET_VALUE_STANDBY_BOTH"
+msgid "Green+red"
+msgstr "绿+红"
+
+#: core/ui/ui_menus.c
+msgctxt "SET_VALUE_STANDBY_ALT"
+msgid "Red/green"
+msgstr "红绿交替"
+
+#: core/ui/ui_menus.c
+msgctxt "SET_VALUE_STANDBY_0_5_S"
+msgid "0.5 s"
+msgstr "0.5 秒"
+
+#: core/ui/ui_menus.c
+msgctxt "SET_VALUE_STANDBY_1_S"
+msgid "1 s"
+msgstr "1 秒"
+
+#: core/ui/ui_menus.c
+msgctxt "SET_VALUE_STANDBY_2_S"
+msgid "2 s"
+msgstr "2 秒"
+
+#: core/ui/ui_menus.c
+msgctxt "SET_VALUE_STANDBY_3_S"
+msgid "3 s"
+msgstr "3 秒"
+
+#: core/ui/ui_menus.c
+msgctxt "SET_VALUE_STANDBY_5_S"
+msgid "5 s"
+msgstr "5 秒"
+
+#: core/ui/ui_menus.c
+msgctxt "SET_VALUE_STANDBY_10_S"
+msgid "10 s"
+msgstr "10 秒"
 
 #: core/ui/ui_menus.c
 msgctxt "SET_LABEL_THEME"
@@ -4002,12 +4077,12 @@ msgstr "单频中继 CW ID"
 #: core/ui/ui_menus.c
 msgctxt "SET_LABEL_PRIVACY_KEY_TYPE"
 msgid "Key type"
-msgstr "按键类型"
+msgstr "密钥类型"
 
 #: core/ui/ui_menus.c
 msgctxt "SET_LABEL_PRIVACY_KEY"
 msgid "Key"
-msgstr "按键"
+msgstr "密钥"
 
 #: core/ui/ui_menus.c
 msgctxt "SET_LABEL_AUTO_LOCK"
@@ -4077,7 +4152,7 @@ msgstr "应答呼叫提示"
 #: core/ui/ui_menus.c
 msgctxt "SET_LABEL_TFTP_CODEPLUG_WRITE"
 msgid "TFTP codeplug write"
-msgstr "TFTP 写入电台频率"
+msgstr "TFTP 写频数据"
 
 #: core/ui/ui_menus.c
 msgctxt "SET_LABEL_MESSAGE_FORMAT"
@@ -4182,12 +4257,12 @@ msgstr "显示"
 #: core/ui/ui_menus.c
 msgctxt "SET_ROW_TALK_LISTEN"
 msgid "Talk & listen"
-msgstr "通话与收听"
+msgstr "发射与接收"
 
 #: core/ui/ui_menus.c
 msgctxt "SET_TITLE_TALK_LISTEN"
 msgid "Talk & Listen"
-msgstr "通话与收听"
+msgstr "发射与接收"
 
 #: core/ui/ui_menus.c
 msgctxt "SET_ROW_PRIVACY"
@@ -4302,12 +4377,12 @@ msgstr "标准"
 #: core/ui/ui_menus.c
 msgctxt "SIG_UNIT_STEP"
 msgid " step"
-msgstr " 步"
+msgstr " 段"
 
 #: core/ui/ui_menus.c
 msgctxt "SIG_UNIT_STEPS"
 msgid " steps"
-msgstr " 步"
+msgstr " 段"
 
 #: core/ui/ui_menus.c
 msgctxt "WHY_PERMIT_TONE_NOT_IN_BUILD"
@@ -4372,7 +4447,7 @@ msgstr "主叫别名：本版本无"
 #: core/ui/ui_menus.c
 msgctxt "SET_WHY_PICK_KEY_TYPE_FIRST"
 msgid "Pick a key type first"
-msgstr "请先选按键类型"
+msgstr "请先选密钥类型"
 
 #: core/ui/ui_menus.c
 msgctxt "SET_WHY_NO_GPS_ON_RADIO"
@@ -4407,7 +4482,7 @@ msgstr "设置更改即保存"
 #: core/ui/ui_menus.c core/ui/ui_position.c
 msgctxt "HINT_OK_CHANGE_BACK"
 msgid "OK change  Back"
-msgstr "OK 改  返回"
+msgstr "OK修改  返回"
 
 #: core/ui/ui_menus.c
 msgctxt "RESET_ROW_KEEP"
@@ -4462,12 +4537,12 @@ msgstr "监听"
 #: core/ui/ui_menus.c
 msgctxt "PICKER_ROW_TYPE_NUMBER"
 msgid "Type a number..."
-msgstr "输入号码……"
+msgstr "输入号码......"
 
 #: core/ui/ui_menus.c
 msgctxt "PICKER_ROW_SELECT_CONTACT"
 msgid "Select contact..."
-msgstr "选择联系人……"
+msgstr "选择联系人......"
 
 #: core/ui/ui_menus.c
 msgctxt "PICKER_TITLE"
@@ -4667,7 +4742,7 @@ msgstr "编号"
 #: core/ui/ui_satellite.c
 msgctxt "TRACKING_4"
 msgid "Tracking"
-msgstr "跟踪中"
+msgstr "跟踪"
 
 #: core/ui/ui_satellite.c
 msgctxt "NEXT_PASS"
@@ -4692,12 +4767,12 @@ msgstr "超出预报"
 #: core/ui/ui_satellite.c
 msgctxt "UP_DOWN_SATELLITE_OK_TRACK"
 msgid "Up Down satellite  OK track  Hold OK arm  # TLE  Back"
-msgstr "上下选择卫星  OK track  长按 OK 启动  # TLE  返回"
+msgstr "OK 跟踪  长按启动  # TLE  返回"
 
 #: core/ui/ui_satellite.c
 msgctxt "UP_DOWN_SATELLITE_OK_TRACK_2"
 msgid "Up Down satellite  OK track  # TLE  Back"
-msgstr "返回 上下选择卫星  OK track  # TLE"
+msgstr "OK 跟踪  # TLE  返回"
 
 #: core/ui/ui_satellite.c
 msgctxt "SO_50_ARM_REQUESTED"
@@ -5677,7 +5752,7 @@ msgstr "重置：原厂区无法擦除"
 #: core/ui/ui_svc_storage.c
 msgctxt "STORE_ERR_KEYS_NOT_SAVED"
 msgid "Couldn't save the keys: for now only"
-msgstr "按键保存失败：仅临时"
+msgstr "密钥保存失败：仅临时"
 
 #: core/ui/ui_svc_zone.c
 msgctxt "SHARE_ERR_ZONE_FULL"

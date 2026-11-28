@@ -9,6 +9,7 @@
 #include "radio/radio_sm.h"
 #include "radio/tones.h"
 #include "settings/settings.h"
+#include "ui/ui.h"	// ui_backlight(): the screen-off standby flash (outputs)
 #include "config.h"
 #include "hal_dtmf.h"
 #include "codeplug/codeplug_modes.h"	// channel kinds (docs/spec/channel-modes.md): parked channels, in every build
@@ -122,10 +123,21 @@ static inline bool nxdn_ok(void)
 #endif
 }
 
-// An air-framed mode this build runs (P25, NXDN): the radio core runs it with the board in its digital mode
+// YSF on this board: built, and the air interface receives or transmits it at either deviation
+static inline bool ysf_ok(void)
+{
+#if CONFIG_YSF
+	return radio_ysf_fits();
+#else
+	return false;
+#endif
+}
+
+// An air-framed mode this build runs (P25, NXDN, YSF): the radio core runs it with the board in its digital mode
 static inline bool air_mode(uint8_t mode)
 {
-	return (CONFIG_P25 && mode == RADIO_MODE_P25) || (CONFIG_NXDN && mode == RADIO_MODE_NXDN);
+	return (CONFIG_P25 && mode == RADIO_MODE_P25) || (CONFIG_NXDN && mode == RADIO_MODE_NXDN) ||
+	       (CONFIG_YSF && mode == RADIO_MODE_YSF);
 }
 // What a scan stop hears of an air mode's call (air_heard)
 enum { AIR_HEARD_NONE, AIR_HEARD_PENDING, AIR_HEARD_PLAYED, AIR_HEARD_OTHER };
@@ -624,6 +636,29 @@ static void led_signals(radio_sm_t *sm, bool *red, bool *green)
 	sm->led_timed = timed;
 }
 
+// How long the standby flash lights the LED in each period: one short flash, but the alternating color lights red and
+// then green inside one second (RADIO_LED_STANDBY_PAIR_MS), capped by the period
+static uint32_t led_standby_window(uint32_t period)
+{
+	if (ui_standby_led_color() != 3 || period == 0)
+		return RADIO_LED_STANDBY_ON_MS;
+	return period < RADIO_LED_STANDBY_PAIR_MS ? period : RADIO_LED_STANDBY_PAIR_MS;
+}
+
+// Screen off: the standby flash is due now, so the tick and poll keep calling outputs() through its edges
+// (nothing else would turn the LED back off), and through the whole window, so the alternating color switches on time.
+// Two ticks of margin, in case one runs late
+static bool led_standby_flash(radio_sm_t *sm)
+{
+	uint32_t period = ui_standby_led_ms();
+	if (!ui_standby_led() || period == 0 || ui_backlight() != 0)
+		return false;
+	uint32_t win = led_standby_window(period);
+	uint32_t ph = sm->led_now % period;
+	uint32_t margin = 2u * RADIO_TICK_MS;
+	return ph < win + margin || ph >= period - margin;
+}
+
 static void deny_led_start(radio_sm_t *sm)
 {
 	sm->deny_led = true;
@@ -642,7 +677,8 @@ static bool parked(const channel_t *ch)
 	if (!codeplug_kind_built(ch->kind)) {
 		return true;
 	}
-	return ch->kind != CODEPLUG_KIND_DMR_TRUNK && ch->mode != RADIO_MODE_P25 && ch->mode != RADIO_MODE_NXDN;
+	return ch->kind != CODEPLUG_KIND_DMR_TRUNK && ch->mode != RADIO_MODE_P25 && ch->mode != RADIO_MODE_NXDN &&
+	       ch->mode != RADIO_MODE_YSF;
 }
 
 // Channel number from the codeplug as the radio runs it: the mode module of its kind takes it
@@ -656,6 +692,9 @@ static bool channel_read(uint16_t number, channel_t *ch)
 #endif
 #if CONFIG_NXDN
 	radio_nxdn_take(ch);
+#endif
+#if CONFIG_YSF
+	radio_ysf_take(ch);
 #endif
 	return true;
 }
@@ -680,6 +719,12 @@ static void outputs(radio_sm_t *sm)
 	    (sm->view.nxdn.flags & RADIO_NXDN_PLAYED) != 0) {
 		green = true;
 	}
+#if CONFIG_YSF
+	if (sm->view.ch.mode == RADIO_MODE_YSF && !tx && sm->view.state == RS_RX &&
+	    (sm->view.ysf.flags & RADIO_YSF_PLAYED) != 0) {
+		green = true;
+	}
+#endif
 #endif
 #if CONFIG_DMR
 	if (!fm && !tx && sm->view.state == RS_RX && sm->view.dmr.state == RDMR_RX) {
@@ -755,6 +800,28 @@ static void outputs(radio_sm_t *sm)
 		green = false;	// a broadcast station playing isn't a call: the LED stays dark (after dual watch's use above)
 	}
 	led_signals(sm, &red, &green);
+	// Screen off and nothing else to show: one short flash every the user's period (3 s unless another was picked),
+	// in the user's color, so a dark radio still says it is on. A reception, a transmission or a timed signal outranks it
+	if (ui_standby_led() && !tx && !green && !red && !sm->led_timed && ui_backlight() == 0) {
+		uint32_t period = ui_standby_led_ms();
+		uint8_t color = ui_standby_led_color();
+		uint32_t win = led_standby_window(period);
+		uint32_t ph = period != 0 ? sm->led_now % period : 0;
+		if (period != 0 && ph < win) {
+			if (color == 3) {
+				// Alternating: red for the first half of the window, green for the second (1 s in all by default)
+				if (ph < win / 2u)
+					red = true;
+				else
+					green = true;
+			} else {
+				if (color != 1)
+					green = true;	// green, and green and red
+				if (color != 0)
+					red = true;	// red, and green and red
+			}
+		}
+	}
 	if (sm->green_out != (int8_t)green) {
 		sm->green_out = (int8_t)green;
 		board.power->led(LED_GREEN, green);
@@ -1500,7 +1567,7 @@ static uint8_t tx_check(const radio_sm_t *sm)
 		return TXDENY_RX_ONLY;
 	}
 	if (ch->mode == RADIO_MODE_DMR ? !CONFIG_DMR : ch->mode == RADIO_MODE_P25 ? !CONFIG_P25 :
-	    ch->mode == RADIO_MODE_NXDN ? !CONFIG_NXDN : !CONFIG_FM) {
+	    ch->mode == RADIO_MODE_NXDN ? !CONFIG_NXDN : ch->mode == RADIO_MODE_YSF ? !CONFIG_YSF : !CONFIG_FM) {
 		return TXDENY_MODE;
 	}
 	if (!trunk && !board_in_band(ch->tx_hz, true)) {
@@ -4482,6 +4549,11 @@ static bool scan_listens(const channel_t *ch, uint16_t number)
 		return false;
 	}
 #endif
+#if CONFIG_YSF
+	if (ch->mode == RADIO_MODE_YSF && !radio_ysf_receives(ch, number)) {
+		return false;
+	}
+#endif
 	return true;
 }
 
@@ -6495,8 +6567,8 @@ static uint16_t air_number(const radio_sm_t *sm)
 #endif
 
 #if CONFIG_AIR
-// --- Air-framed modes (P25, NXDN): their modules (radio_p25.c, radio_nxdn.c) run the engine and the voice; here, when
-// it runs and the transmitter, the same for each (radio_air.h). One runs at a time ---
+// --- Air-framed modes (P25, NXDN, YSF): their modules (radio_p25.c, radio_nxdn.c, radio_ysf.c) run the engine and the
+// voice; here, when it runs and the transmitter, the same for each (radio_air.h). One runs at a time ---
 
 #if CONFIG_NXDN
 // NXDN is the mode whose engine runs, or the channel's when none runs
@@ -6511,16 +6583,42 @@ static bool nxdn_now(const radio_sm_t *sm)
 }
 #endif
 
+#if CONFIG_YSF
+// YSF is the mode whose engine runs, or the channel's when none runs
+static bool ysf_now(const radio_sm_t *sm)
+{
+#if CONFIG_P25
+	if (radio_p25_running()) {
+		return false;
+	}
+#endif
+#if CONFIG_NXDN
+	if (radio_nxdn_running()) {
+		return false;
+	}
+#endif
+	return radio_ysf_running() || sm->view.ch.mode == RADIO_MODE_YSF;
+}
+#endif
+
 static const radio_air_ops_t *air_ops(const radio_sm_t *sm)
 {
+#if CONFIG_YSF
+	if (ysf_now(sm)) {
+		return &radio_ysf_air;
+	}
+#endif
 #if CONFIG_NXDN && CONFIG_P25
 	return nxdn_now(sm) ? &radio_nxdn_air : &radio_p25_air;
 #elif CONFIG_NXDN
 	(void)sm;
 	return &radio_nxdn_air;
-#else
+#elif CONFIG_P25
 	(void)sm;
 	return &radio_p25_air;
+#else
+	(void)sm;
+	return &radio_ysf_air;
 #endif
 }
 
@@ -6533,12 +6631,20 @@ static bool air_running(void)
 #if CONFIG_NXDN
 	on = on || radio_nxdn_running();
 #endif
+#if CONFIG_YSF
+	on = on || radio_ysf_running();
+#endif
 	return on;
 }
 
 // The engine's view into the radio view. True when it changed
 static bool air_poll(radio_sm_t *sm)
 {
+#if CONFIG_YSF
+	if (ysf_now(sm)) {
+		return radio_ysf_poll(&sm->view.ysf);
+	}
+#endif
 #if CONFIG_NXDN
 	if (nxdn_now(sm)) {
 		return radio_nxdn_poll(&sm->view.nxdn);
@@ -6551,9 +6657,14 @@ static bool air_poll(radio_sm_t *sm)
 #endif
 }
 
-// A call on the channel (our NAC or RAN): it shows as a reception, whether or not it plays
+// A call on the channel (our NAC, RAN or DG-ID): it shows as a reception, whether or not it plays
 static bool air_rx(const radio_sm_t *sm)
 {
+#if CONFIG_YSF
+	if (ysf_now(sm)) {
+		return (sm->view.ysf.flags & RADIO_YSF_RX) != 0;
+	}
+#endif
 #if CONFIG_NXDN
 	if (nxdn_now(sm)) {
 		return (sm->view.nxdn.flags & RADIO_NXDN_RX) != 0;
@@ -6567,11 +6678,20 @@ static bool air_rx(const radio_sm_t *sm)
 }
 
 #if CONFIG_SCAN
-// What a scan stop hears of the engine's call (AIR_HEARD_*): a call of the channel's NAC or RAN is pending while its
-// squelch waits for a field, a late entry's talk group (P25) or a call's VCALL (NXDN); played; or decided against
+// What a scan stop hears of the engine's call (AIR_HEARD_*): a call of the channel's NAC, RAN or DG-ID is pending
+// while its squelch waits for a field, a late entry's talk group (P25) or a call's VCALL (NXDN); played; or decided
+// against
 static uint8_t air_heard(const radio_sm_t *sm)
 {
 	bool rx = false, played = false, pending = false;
+#if CONFIG_YSF
+	if (ysf_now(sm)) {
+		const radio_ysf_view_t *v = &sm->view.ysf;
+		rx = (v->flags & RADIO_YSF_RX) != 0;
+		played = (v->flags & RADIO_YSF_PLAYED) != 0;
+		pending = v->src[0] == '\0';	// no call sign yet: nothing decided
+	} else
+#endif
 #if CONFIG_NXDN
 	if (nxdn_now(sm)) {
 		const radio_nxdn_view_t *v = &sm->view.nxdn;
@@ -6596,6 +6716,14 @@ static uint8_t air_heard(const radio_sm_t *sm)
 // On an air mode's channel, the board in its digital mode and tuned: the engine starts (dmr_end stopped any before)
 static void air_begin(radio_sm_t *sm)
 {
+#if CONFIG_YSF
+	radio_ysf_monitor(hear_all_on(sm));
+	if (sm->view.ch.mode == RADIO_MODE_YSF) {
+		radio_ysf_begin(&sm->view.ch, air_number(sm));
+		radio_ysf_poll(&sm->view.ysf);
+		return;
+	}
+#endif
 #if CONFIG_NXDN
 	if (sm->view.ch.mode == RADIO_MODE_NXDN) {
 		radio_nxdn_begin(&sm->view.ch, air_number(sm));
@@ -6619,6 +6747,9 @@ static void air_stop(radio_sm_t *sm)
 #if CONFIG_NXDN
 	radio_nxdn_end();
 #endif
+#if CONFIG_YSF
+	radio_ysf_end();
+#endif
 	if (sm->air_keyed) {
 		sm->air_keyed = false;
 		board.radio->tx_off();
@@ -6635,6 +6766,10 @@ static void air_stop(radio_sm_t *sm)
 #if CONFIG_NXDN
 	sm->view.nxdn.flags &= (uint8_t)~(RADIO_NXDN_ON | RADIO_NXDN_RX | RADIO_NXDN_PLAYED);
 	sm->view.nxdn.tx = AIR_TX_IDLE;
+#endif
+#if CONFIG_YSF
+	sm->view.ysf.flags &= (uint8_t)~(RADIO_YSF_ON | RADIO_YSF_RX | RADIO_YSF_PLAYED);
+	sm->view.ysf.tx = AIR_TX_IDLE;
 #endif
 }
 
@@ -6682,9 +6817,16 @@ static void air_key(radio_sm_t *sm, uint32_t now_ms, uint32_t hz)
 	changed(sm);
 }
 
-// The settings sent while it transmitted (RREQ_P25_SET, RREQ_NXDN_SET): the engine takes them now
+// The settings sent while it transmitted (RREQ_P25_SET, RREQ_NXDN_SET, RREQ_YSF_SET): the engine takes them now
 static void air_apply(radio_sm_t *sm)
 {
+#if CONFIG_YSF
+	radio_ysf_monitor(hear_all_on(sm));
+	if (ysf_now(sm)) {
+		radio_ysf_apply(&sm->view.ch, air_number(sm));
+		return;
+	}
+#endif
 #if CONFIG_NXDN
 	if (nxdn_now(sm)) {
 		radio_nxdn_apply(&sm->view.ch, air_number(sm));
@@ -8320,6 +8462,9 @@ void radio_sm_init(radio_sm_t *sm, uint32_t now_ms)
 	p25VoiceSetMixer(beep_mix);
 #endif
 #endif
+#if CONFIG_YSF
+	radio_ysf_init();
+#endif
 
 	kv_load(sm, now_ms);
 
@@ -8821,13 +8966,14 @@ void radio_sm_request(radio_sm_t *sm, const radio_req_t *req, uint32_t now_ms)
 		// Not on a channel of a kind: its mode is the kind's (channel-modes.md 6)
 		if (busy || sm->view.ch.kind != CODEPLUG_KIND_NONE ||
 				(req->arg != RADIO_MODE_FM && req->arg != RADIO_MODE_DMR && req->arg != RADIO_MODE_P25 &&
-				 req->arg != RADIO_MODE_NXDN) ||
+				 req->arg != RADIO_MODE_NXDN && req->arg != RADIO_MODE_YSF) ||
 				req->arg == sm->view.ch.mode ||
 				(req->arg == RADIO_MODE_FM && !(sm->view.vfo ? CONFIG_VFO_FM : CONFIG_FM)) ||
 				(req->arg == RADIO_MODE_DMR && (radio_listen_band(sm->view.ch.rx_hz) ||
 								(sm->view.vfo && !CONFIG_VFO_DMR))) ||
 				(req->arg == RADIO_MODE_P25 && (!p25_ok() || radio_listen_band(sm->view.ch.rx_hz))) ||
-				(req->arg == RADIO_MODE_NXDN && (!nxdn_ok() || radio_listen_band(sm->view.ch.rx_hz)))) {
+				(req->arg == RADIO_MODE_NXDN && (!nxdn_ok() || radio_listen_band(sm->view.ch.rx_hz))) ||
+				(req->arg == RADIO_MODE_YSF && (!ysf_ok() || radio_listen_band(sm->view.ch.rx_hz)))) {
 			break;
 		}
 		sm->view.ch.mode = (uint8_t)req->arg;
@@ -9036,6 +9182,20 @@ void radio_sm_request(radio_sm_t *sm, const radio_req_t *req, uint32_t now_ms)
 			air_begin(sm);		// not running at the old rate: perhaps at the new one
 		}
 		radio_nxdn_poll(&sm->view.nxdn);	// the settings in the view now, running or not
+		changed(sm);
+		break;
+#endif
+
+#if CONFIG_YSF
+	case RREQ_YSF_SET:
+		// The same for YSF; a new data type or deviation starts the engine over (radio_ysf_apply)
+		if (radio_ysf_running()) {
+			radio_ysf_apply(&sm->view.ch, air_number(sm));
+		} else if (sm->view.ch.mode == RADIO_MODE_YSF && sm->board_mode == RADIO_MODE_DMR && !BENCH_HELD(sm) &&
+			   radio_ysf_fits()) {
+			air_begin(sm);		// not running at the old deviation: perhaps at the new one
+		}
+		radio_ysf_poll(&sm->view.ysf);	// the settings in the view now, running or not
 		changed(sm);
 		break;
 #endif
@@ -9453,7 +9613,7 @@ void radio_sm_poll(radio_sm_t *sm, uint32_t now_ms)
 {
 	radio_status_t st;
 	sm->led_now = now_ms;
-	if (sm->led_timed || sm->deny_led || ptt_line_stuck()) {
+	if (sm->led_timed || sm->deny_led || ptt_line_stuck() || led_standby_flash(sm)) {
 		outputs(sm);	// as in radio_sm_tick: some paths below return before their outputs()
 	}
 	// codeplug_serial() before zone_edit_busy(): a zone write that moved indexes has its log entry by then
@@ -9828,7 +9988,7 @@ void radio_sm_tick(radio_sm_t *sm, uint32_t now_ms)
 		bench_tick(sm, now_ms);
 	}
 #endif
-	if (sm->led_timed || sm->deny_led || ptt_line_stuck()) {
+	if (sm->led_timed || sm->deny_led || ptt_line_stuck() || led_standby_flash(sm)) {
 		outputs(sm);	// a blink or the deny flash runs on time, not only when the state changes
 	}
 #if CONFIG_SATELLITE_TLE

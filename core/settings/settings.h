@@ -245,7 +245,8 @@ typedef struct {
 	// SETTINGS_T3_KILLED set, no DMR at all until a factory reset
 	uint8_t t3_kill;
 	uint8_t satellite_index;	// reserved10[0]: selected TLE record; older records select the first
-	uint8_t reserved10[1];		// 0
+	uint8_t standby_led;		// screen-off beacon flash: 0 on (the default an older record reads), 1 off
+					// (Settings > Display; was reserved10[1])
 	// Signaling tones (core/radio/sigtone.h), appended at the end so a record written before reads them as 0:
 	// per event (start of a transmission, its end, a reception's end) where it sounds in DMR and in FM (sig_out_t).
 	// 0 = the default output, as an older record reads. The event's chain of steps is only in its codeplug record
@@ -253,7 +254,10 @@ typedef struct {
 	// copy 60 bytes
 	uint8_t sig_dmr[3];
 	uint8_t sig_fm[3];
-	uint8_t reserved11[2];		// 0
+	uint8_t standby_color;		// screen-off beacon flash color: 0 green (as an older record reads), 1 red,
+					// 2 green and red, 3 red and green alternating (Settings > Display; was reserved11[0])
+	uint8_t standby_hs;		// screen-off beacon flash period, half seconds: 1 = 0.5 s .. 20 = 10 s;
+					// 0 = 3 s, the default an older record reads (Settings > Display; was reserved11[1])
 } settings_t;
 
 // Pages: settings_t is stored as records of SETTINGS_PAGE_BYTES each (settings-store.md 2.1). Only the pages its size

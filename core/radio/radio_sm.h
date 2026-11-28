@@ -36,6 +36,11 @@
 #define RADIO_LED_STUCK_STEP_MS	125	// a stuck PTT line: red and green in turn, to ask for a power cycle
 #define RADIO_LED_DENY_STEP_MS	100
 #define RADIO_LED_DENY_STEPS	6
+// Screen off (backlight 0): one short green flash this often, a beacon that the radio is still on
+#define RADIO_LED_STANDBY_MS	3000
+#define RADIO_LED_STANDBY_ON_MS	150
+// The alternating color (red then green) lights both colors in one second per period, so red and green count as one flash
+#define RADIO_LED_STANDBY_PAIR_MS	1000
 #define RADIO_TOT_DEFAULT_S	180	// TX time-out
 #define RADIO_SQUELCH_DEFAULT	5
 #define RADIO_SQUELCH_MAX	9
@@ -199,6 +204,7 @@ typedef enum {
 	RREQ_AIR_BENCH,		// the air interface bench (CONFIG_AIR_RAW): arg 1 take the modem, 0 give it back
 	RREQ_AIR_TX,		// ... arg 1 key (arg2: the longest time in ms), 0 unkey
 	RREQ_NXDN_SET,		// radio_task.c: the pending NXDN settings were copied (radio_nxdn_set_settings); applied here
+	RREQ_YSF_SET,		// radio_task.c: the pending YSF settings were copied (radio_ysf_set_settings); applied here
 } radio_req_type_t;
 
 // RREQ_TONE's argument: which (RADIO_TONE_*) in bits 25:24, the tone type in 23:16, the value in 15:0

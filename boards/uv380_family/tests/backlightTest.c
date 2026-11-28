@@ -23,21 +23,22 @@ int main(void)
 	// The tail in timer counts: 38 us at 72 MHz, a small share of the period
 	CHECK(UVF_BL_TAIL == 2736u);
 	CHECK(UVF_BL_TAIL * 10u < UVF_BL_PERIOD);
-	// Equivalence partitions: off, too low for the tail (one count), a middle level, fully on, values above 100
+	// Equivalence partitions: off, too short for the stage (the minimum pulse), a middle level, fully on, values above 100
 	CHECK(uvf_bl_compare(0, false) == 0);
-	CHECK(uvf_bl_compare(5, false) == 1);	// the idle dim floor: 1800 counts lit is under the tail
-	CHECK(uvf_bl_compare(10, false) == 3600u - 2736u);
+	CHECK(uvf_bl_compare(5, false) == UVF_BL_MIN);	// 1800 counts lit is under the tail and the minimum pulse
+	CHECK(uvf_bl_compare(10, false) == UVF_BL_MIN);	// 3600 counts: 864 left after the tail, shorter than the minimum
 	CHECK(uvf_bl_compare(50, false) == 18000u - 2736u);
 	CHECK(uvf_bl_compare(100, false) == UVF_BL_PERIOD);
 	CHECK(uvf_bl_compare(255, false) == UVF_BL_PERIOD);
-	// Boundary values around the tail: 7 % (2520 counts) is under it (one count), 8 % (2880) the first level above it,
-	// 99 % still PWM
-	CHECK(uvf_bl_compare(7, false) == 1);
-	CHECK(uvf_bl_compare(8, false) == 2880u - 2736u);
+	// Boundary values around the minimum: 15 % (5400 counts) still under tail plus minimum, 16 % (5760) the first level
+	// above it, 99 % still PWM
+	CHECK(uvf_bl_compare(15, false) == UVF_BL_MIN);
+	CHECK(uvf_bl_compare(16, false) == 5760u - 2736u);
 	CHECK(uvf_bl_compare(99, false) == 35640u - 2736u);
 	CHECK(uvf_bl_compare(99, false) < UVF_BL_PERIOD);
-	// Every Brightness setting and idle dim level from 10 % up: pulse plus tail is its exact share of the period
-	for (unsigned b = 10; b <= 95; b += 5)
+	CHECK(UVF_BL_MIN == 2880u);	// 40 us at 72 MHz
+	// Every Brightness setting from 20 % up: pulse plus tail is its exact share of the period
+	for (unsigned b = 20; b <= 95; b += 5)
 		CHECK((uvf_bl_compare((uint8_t)b, false) + UVF_BL_TAIL) * 100u == b * UVF_BL_PERIOD);
 	// Transmit or receive audio: every lit level is the steady pin, never a pulse (#759: one count left some panels
 	// dark), and off stays off
@@ -53,8 +54,10 @@ int main(void)
 		CHECK(c <= UVF_BL_PERIOD);
 		CHECK((p == 0) == (c == 0));
 		CHECK((p >= 100) == (c == UVF_BL_PERIOD));
-		if (p > 0 && p < 100 && p * UVF_BL_PERIOD / 100u > UVF_BL_TAIL)
+		if (p > 0 && p < 100 && p * UVF_BL_PERIOD / 100u > UVF_BL_TAIL + UVF_BL_MIN)
 			CHECK(c + UVF_BL_TAIL == p * UVF_BL_PERIOD / 100u);
+		else if (p > 0 && p < 100 && c != UVF_BL_PERIOD)
+			CHECK(c == UVF_BL_MIN);	// under the tail plus the minimum pulse: the minimum
 		prev = c;
 	}
 	// Seeded property: for any two levels in either state, the brighter never gets a shorter pulse, and the quiet

@@ -556,7 +556,7 @@ bool radio_p25_begin(const channel_t *ch, uint16_t number, uint32_t own_id)
 #endif
 		radio_p25_params(ch, number, own_id, &cfg);
 #if CONFIG_IMBE
-	p25VoiceBegin(&mem->voice);
+	p25VoiceBegin(&mem->voice, P25_VOICE_PRIME);
 	hooks = p25VoiceHooks();
 #endif
 #if CONFIG_P25_TRUNK

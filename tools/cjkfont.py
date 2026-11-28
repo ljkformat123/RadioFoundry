@@ -40,7 +40,7 @@ import sys
 
 # Pillow is only needed to render glyphs (main), not to read the tables the checks inspect. Import it where it is
 # used so this module imports without Pillow installed: CI's checks job and the rfoundry OS jobs don't install it.
-CELL = 16				# pixels square; the height of the 8x16 Latin font
+CELL = 12				# pixels square; this 160 px layout's 6x12 font (local change; upstream 16)
 BITS_PER_ROW = CELL
 ROW_BYTES = (BITS_PER_ROW + 7) // 8
 GLYPH_BYTES = CELL * ROW_BYTES
@@ -164,6 +164,55 @@ def write_preview(glyphs, path, zoom=3, gap=3):
     sheet.save(path)
 
 
+# A BDF pixel font (e.g. Fusion Pixel 12px): the glyphs are already CELL pixels tall, so nothing is rasterized -
+# the bitmap is copied out as it is, which is what keeps a hand-drawn 12x12 face crisp where an outline font blurs
+def load_bdf(path):
+    """{(code point): (bbx, [row hex])} and the font's ascent, from a BDF file."""
+    glyphs, ascent, fbb = {}, None, None
+    enc = bb = rows = None
+    for line in open(path, encoding="utf-8", errors="replace"):
+        f = line.split()
+        if not f:
+            continue
+        if f[0] == "FONTBOUNDINGBOX":
+            fbb = tuple(int(x) for x in f[1:5])
+        elif f[0] == "FONT_ASCENT":
+            ascent = int(f[1])
+        elif f[0] == "STARTCHAR":
+            enc = bb = rows = None
+        elif f[0] == "ENCODING":
+            enc = int(f[1])
+        elif f[0] == "BBX":
+            bb = tuple(int(x) for x in f[1:5])
+        elif f[0] == "BITMAP":
+            rows = []
+        elif f[0] == "ENDCHAR":
+            if enc is not None and bb is not None and rows:
+                glyphs[enc] = (bb, rows)
+        elif rows is not None:
+            try:
+                int(f[0], 16)
+            except ValueError:
+                continue
+            rows.append(f[0])
+    return fbb, (CELL if ascent is None else ascent), glyphs
+
+
+def bdf_rows(cp, ascent, glyphs):
+    """The character as CELL x CELL rows of ROW_BYTES bytes, placed by the BDF's own baseline."""
+    (w, h, xoff, yoff), hexrows = glyphs[cp]
+    rows = [bytearray(ROW_BYTES) for _ in range(CELL)]
+    top = ascent - (yoff + h)
+    for r, hexrow in enumerate(hexrows):
+        v = int(hexrow, 16)
+        bits = len(hexrow) * 4
+        for c in range(min(w, bits)):
+            if (v >> (bits - 1 - c)) & 1:
+                y, x = top + r, xoff + c
+                if 0 <= y < CELL and 0 <= x < CELL:
+                    rows[y][x >> 3] |= 0x80 >> (x & 7)
+    return [bytes(r) for r in rows]
+
 def license_lines(path):
     """The font's license text, without a copyright line of its own: --copyright names the holder of this data."""
     with open(path, encoding="utf-8") as f:
@@ -175,7 +224,8 @@ def license_lines(path):
 
 def main():
     ap = argparse.ArgumentParser(description="Build the firmware's CJK glyph table (docs/dev/translating.md)")
-    ap.add_argument("--font", required=True, help="an outline font whose license allows embedding bitmaps")
+    ap.add_argument("--font", help="an outline font whose license allows embedding bitmaps")
+    ap.add_argument("--bdf", help="a BDF pixel font instead: its %dx%d bitmaps are used as they are" % (CELL, CELL))
     ap.add_argument("--font-index", type=int, default=0, help="a face inside a .ttc (default 0)")
     ap.add_argument("--weight", type=int, default=500, help="the variable font's weight axis (0: its default)")
     ap.add_argument("--supersample", type=int, default=2, help="render this much larger, then shrink (default 2)")
@@ -195,6 +245,8 @@ def main():
 
     if not args.po and not args.text:
         ap.error("give --po or --text")
+    if not args.bdf and not args.font:
+        ap.error("give --font or --bdf")
     chars = chars_from_po(args.po) if args.po else set(args.text)
     if args.chars_file:
         chars |= chars_from_file(args.chars_file)
@@ -204,15 +256,32 @@ def main():
     if not chars:
         ap.error("no characters to build")
 
-    font = load_font(args.font, CELL * args.supersample, args.weight, args.font_index)
-    window = em_box(font, CELL * args.supersample)
     glyphs, missing = [], []
-    for ch in chars:
-        rows = to_rows(rasterize(font, ch, window, args.threshold))
-        if not any(any(row) for row in rows):
-            missing.append(ch)
-            continue
-        glyphs.append((ord(ch), ch, rows))
+    if args.bdf:
+        fbb, ascent, bdf = load_bdf(args.bdf)
+        if fbb and fbb[1] != CELL:
+            ap.error("%s draws %d-pixel glyphs, this cell is %d" % (args.bdf, fbb[1], CELL))
+        for ch in chars:
+            cp = ord(ch)
+            if cp not in bdf:
+                missing.append(ch)
+                continue
+            rows = bdf_rows(cp, ascent, bdf)
+            if not any(any(row) for row in rows):
+                missing.append(ch)
+                continue
+            glyphs.append((cp, ch, rows))
+        font_path = args.bdf
+    else:
+        font = load_font(args.font, CELL * args.supersample, args.weight, args.font_index)
+        window = em_box(font, CELL * args.supersample)
+        for ch in chars:
+            rows = to_rows(rasterize(font, ch, window, args.threshold))
+            if not any(any(row) for row in rows):
+                missing.append(ch)
+                continue
+            glyphs.append((ord(ch), ch, rows))
+        font_path = args.font
     if missing:
         print("cjkfont: %d character(s) the font does not draw: %s" % (len(missing), "".join(missing)), file=sys.stderr)
     if not glyphs:
@@ -221,8 +290,8 @@ def main():
     if args.out_png:
         write_preview([rows for _, _, rows in glyphs], args.out_png)
 
-    name = args.font_name or os.path.basename(args.font)
-    with open(args.font, "rb") as f:
+    name = args.font_name or os.path.basename(font_path)
+    with open(font_path, "rb") as f:
         sha = hashlib.sha256(f.read()).hexdigest()
     license_text = license_lines(args.license)
 

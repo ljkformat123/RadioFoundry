@@ -29,7 +29,7 @@ static imbe_mem_t dec;			// the decoder's pointers into mem
 static imbe_enc_mem_t enc;		// the encoder's: the decoder's prediction state and scratch, its own history
 
 // Queue: producer the provider's task (head), consumer the audio callback (tail)
-static uint8_t rx_head, rx_tail;
+static uint8_t rx_head, rx_tail, rx_prime;
 // Call boundaries, written by the provider's task only: a start bumps the sequence, an end copies it
 static uint8_t rx_seq, rx_end_seq;
 
@@ -168,7 +168,7 @@ static void rx_block(int16_t *spk)
 		return;
 	}
 	if (!cb_primed) {
-		if (queued < P25_VOICE_PRIME && !(ended && queued > 0)) {
+		if (queued < rx_prime && !(ended && queued > 0)) {
 			if (ended) {
 				cb_live = false;	// a call that ended before playing anything
 			}
@@ -267,6 +267,7 @@ void p25VoiceAudioBlock(const int16_t *mic, int16_t *spk, void *ctx)
 		if (g != cb_tx_gen) {
 			cb_tx_gen = g;
 			stats.tx_mic_peak = 0;
+			speaker(false);
 			imbe_enc_init(&enc);
 		}
 		tx_block(g, mic);
@@ -307,10 +308,11 @@ void p25VoiceInit(const hal_audio_t *audio)
 	aud = audio;
 }
 
-void p25VoiceBegin(p25_voice_mem_t *m)
+void p25VoiceBegin(p25_voice_mem_t *m, uint8_t frames_per_burst)
 {
 	// The stream is stopped (p25VoiceEnd) and the engine not started: nothing else touches this state now
 	rx_head = rx_tail = 0;
+	rx_prime = frames_per_burst;
 	rx_seq = rx_end_seq = 0;
 	tx_head = tx_tail = 0;
 	tx_gen = cb_tx_gen = 0;

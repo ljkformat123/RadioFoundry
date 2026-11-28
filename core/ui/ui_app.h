@@ -24,6 +24,10 @@ void ui_app_draw(void);
 // Backlight percent the user chose (Quick settings / Settings > Display); the dim and off times are the radio's
 // settings (ui_svc_apply)
 uint8_t ui_app_brightness(void);
+bool ui_app_standby_led(void);
+// The screen-off beacon flash's color (0 green, 1 red, 2 green and red) and period in ms
+uint8_t ui_app_standby_led_color(void);
+uint16_t ui_app_standby_led_ms(void);
 // CONFIG_BACKLIGHT_TEST: the percent the backlight tests hold the light at (the task writes no other), -1 when not held
 int16_t ui_app_backlight_hold(void);
 // The hold ended since the last call (then cleared): the task writes its own level again

@@ -43,3 +43,28 @@ BOARD_UNSUPPORTED += FAULT_TRACE	# needs a host UART: the host port is USB, and 
 #
 # board.toml's "chinese" ci extra builds exactly that. The web flasher offers Chinese to a browser that asks for it
 # (docs/user/02-installing.md); the build fits without dropping Spanish (docs/user/23-radios.md)
+#
+# Local change (BG5FLU): Chinese on by default, in a 12x12 cell rather than 16x16 - the height of this layout's 6x12
+# font - so the 160x120 layout keeps its rows and nothing moves to the 8x16 font (core/ui/cjk_font.h, tools/cjkfont.py)
+CONFIG_LANG_ZH ?= y
+CONFIG_LANG_DEFAULT_ZH ?= y
+
+# P25 and NXDN are off (local change): their software vocoders (IMBE, MBE) come to 84 KB, and the 12x12 Chinese table
+# (105 KB, GB2312 rows 1-9 and 16-55 so a channel named in Chinese still draws) would carry the image past 0x080C0000,
+# the codec sectors. This radio in China works DMR and FM
+CONFIG_P25 ?= n
+BOARD_UNSUPPORTED += P25	# room for the Chinese glyph table: IMBE's voice tables are 84 KB of it
+CONFIG_P25_TRUNK ?= n
+BOARD_UNSUPPORTED += P25_TRUNK	# needs P25
+CONFIG_NXDN ?= n
+BOARD_UNSUPPORTED += NXDN	# room for the Chinese glyph table: MBE's voice tables are 84 KB of it
+
+# The new network extras and SNMP are off (local change): the radio has a GPS module fitted (pos.gps_present=1), so
+# satellite tracking stays, and with the 12x12 Chinese table (105 KB) the image was past 0x080C0000. These four host
+# services are what goes instead: USRP (SDR audio over USB), rigctld (a rig-control port), mDNS (service discovery) and
+# TFTP (a file server beside the CPS's own USB link)
+CONFIG_SNMP ?= y
+CONFIG_NET_USRP ?= y
+CONFIG_NET_RIGCTL ?= y
+CONFIG_MDNS ?= y
+CONFIG_TFTP ?= y

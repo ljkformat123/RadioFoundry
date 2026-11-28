@@ -113,6 +113,9 @@ typedef struct {
 	uint8_t gps;		// UI_GPS_*: the status strip's GPS icon
 	bool hints;		// the hint row is shown (Settings > Display)
 	bool large_text;	// Home shows only the channel and the talk target (Settings > Display)
+	bool standby_led;	// the screen-off beacon flash is on (Settings > Display)
+	uint8_t standby_color;	// its color: 0 green, 1 red, 2 green and red, 3 alternating
+	uint16_t standby_ms;	// its period, ms (3 s unless another was picked)
 	bool privacy;		// the next DMR transmission is encrypted
 	bool hear_all;		// hear all latched (quick tile 5 on DMR); follows the radio view where the radio has it
 	// Here, in the byte before auto_lock_s that was padding: the radio with the least RAM has none to spare in its

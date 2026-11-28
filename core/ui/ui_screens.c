@@ -236,7 +236,7 @@ void ui_layout_init(void)
 	// higher (3 on tall ones, 6 in the 240 px class): easy to read comes before one more row
 	bool tall = h >= UI_TALL_PX;
 	L->strip_h = L->small->h + 1;
-	L->hint_y = h - L->small->h;
+	L->hint_y = h - L->small->h - (h < 150 ? 3 : 0);
 	int y = L->strip_h;
 	// Rows that are dropped when the display is short: the zone line, then the separator
 	int need = L->small->h + L->large->h + L->medium->h + L->small->h + 2 + L->small->h;
@@ -1089,22 +1089,31 @@ static void draw_place(const radio_view_t *v, const ui_state_t *s)
 
 	// Channel number (medium, dim) and name, baselines aligned. The name uses the largest font it fits in; only a name
 	// too long even for the small font is shortened from the middle
+	const font_t *nf = L->large;
+#if CONFIG_LANG_ZH
+	// A CJK glyph is 12 px whatever the cell. In a 24 px cell (12x24) its ink is 11 px against the capitals' 15, so a
+	// name would mix a half-height character with full-height letters; the row steps down to the 16 px font instead
+	// (capitals 11 px), which is the size a CJK firmware shows channel names in
+	if (nf->h >= CJK_FONT_H * 2 && L->medium->h >= CJK_FONT_H && lang_wide(lang_current()))
+		nf = L->medium;
+#endif
+	int room = w - L->medium->w - L->medium->w / 2 - (v->temporary ? L->medium->w : 0);
+	while (gfx_text_width(nf, v->ch.name) > room && nf != L->small)
+		nf = nf == L->large ? L->medium : L->small;
+	// A name that steps down inside the taller channel cell is centred in it instead of hugging its bottom
+	int dy = (L->large->h - nf->h) / 2;	// lifted from the baseline, so the smaller text is centred in the cell
+	// The number keeps the medium font, on the name's baseline
 	sb_init(&b, buf, sizeof buf);
 	sb_u32(&b, v->channel_number, 1);
-	int x = gfx_text(L->medium, 0, base - L->medium->ascent, buf, gfx_bpp() == 1 ? ui_col.dim : ui_col.chnum) +
-		L->medium->w / 2;
-	int avail = w - x;
+	int nx = gfx_text(L->medium, 0, base - L->medium->ascent - dy, buf,
+			  gfx_bpp() == 1 ? ui_col.dim : ui_col.chnum);
+	int avail = w - nx - L->medium->w / 2;
 	if (v->temporary)
 		avail -= L->medium->w;
-	const font_t *nf = L->large;
-	if (gfx_text_width(nf, v->ch.name) > avail)
-		nf = L->medium;
-	if (gfx_text_width(nf, v->ch.name) > avail)
-		nf = L->small;
 	gfx_text_fit(nf, v->ch.name, avail, fit, sizeof fit);
-	x = gfx_text(nf, x, nf == L->large ? y : base - nf->ascent, fit, ui_col.fg);
+	int x = gfx_text(nf, nx + L->medium->w / 2, base - nf->ascent - dy, fit, ui_col.fg);
 	if (v->temporary)
-		gfx_text(L->medium, x, base - L->medium->ascent, GLYPH_DOT, ui_col.warn);
+		gfx_text(L->medium, x, base - L->medium->ascent - dy, GLYPH_DOT, ui_col.warn);
 }
 
 static void draw_talk(const radio_view_t *v, bool label_first)
@@ -2948,6 +2957,12 @@ static void __attribute__((noinline)) dual_choose(int avail, int gap, dual_fit_t
 {
 	const ui_layout_t *L = &ui_layout;
 	const font_t *lg = L->large, *md = L->medium, *sm = L->small;
+#if CONFIG_LANG_ZH
+	// Same rule as the single-channel row (draw_place): where a CJK glyph would sit at half the capitals' height, the
+	// names take the 16 px font and match
+	if (lg->h >= CJK_FONT_H * 2 && md->h >= CJK_FONT_H && lang_wide(lang_current()))
+		lg = md;
+#endif
 	const dual_fit_t fits[] = {
 		{ lg, md, sm, true, 2 }, { lg, md, sm, false, 2 }, { lg, md, sm, false, 1 },
 		{ lg, md, NULL, false, 1 }, { lg, sm, NULL, false, 1 }, { md, sm, NULL, false, 1 },

@@ -82,7 +82,7 @@ typedef struct {
 // The board's PCM audio (NULL: frames are counted, nothing plays). Once, at start-up
 void p25VoiceInit(const hal_audio_t *audio);
 // Start on mem (radio task, before p25_engine_begin); the stream starts with the first call (p25VoicePoll)
-void p25VoiceBegin(p25_voice_mem_t *mem);
+void p25VoiceBegin(p25_voice_mem_t *mem, uint8_t frames_per_burst);
 // Radio task, every tick while P25 runs: starts the audio stream once a call is heard
 void p25VoicePoll(void);
 // A transmission starts (the stream starts if it was not running; from the next block the mic is encoded) or ends.

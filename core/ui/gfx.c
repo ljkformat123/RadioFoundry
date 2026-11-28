@@ -564,10 +564,20 @@ static int text(const font_t *f, int x, int y, const char *s, color_t fg, bool o
 		if (opaque)
 			gfx_fill(x, y, adv, f->h, bg);
 		const uint8_t *g;
+#if CONFIG_CJK_SPI
+		uint8_t spibuf[CJK_FONT_BYTES];	// the glyphs are in the data flash (cjk_font.h): one read fills this
+#endif
 		int top = 0, rows = 0;
 		if (cp > 0xFF) {
+#if CONFIG_CJK_SPI
+			g = cjk_font_load(cp, spibuf) ? spibuf : NULL;
+#else
 			g = cjk_font_glyph(cp);
-			top = f->h - CJK_FONT_H;	// the bottom of the cell: on the Latin baseline
+#endif
+			// On the Latin baseline, not on the cell's bottom: the rows under the baseline are room for Latin
+			// descenders, and a CJK glyph placed in them rides 3-4 px low beside the capitals of a 8x16 or 12x24
+			// line. A cell no taller than the glyph has no such room and keeps the old bottom alignment
+			top = f->h > CJK_FONT_H ? f->ascent - CJK_FONT_H : f->h - CJK_FONT_H;
 			rows = CJK_FONT_H;
 			if (top < 0) {			// a cell shorter than the glyph (a layout that must not hold Chinese): clip it to the cell
 				rows += top;		// top is negative: the rows above the cell go
